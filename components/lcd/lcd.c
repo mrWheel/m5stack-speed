@@ -271,6 +271,31 @@ static void draw_static_frame(void)
   fill_rect(0, 182, LCD_W, 1, LCD_COLOR_DARKGREY);
 }
 
+void lcd_color_test(void)
+{
+  //-- With Display Inversion now forced off in lcd_init(), these true
+  //-- LCD_COLOR_* values should render as their intended colors.
+  static const struct { const char *name; uint16_t raw; } bars[] = {
+    { "RED",     LCD_COLOR_RED },
+    { "GREEN",   LCD_COLOR_GREEN },
+    { "BLUE",    LCD_COLOR_BLUE },
+    { "YELLOW",  LCD_COLOR_YELLOW },
+    { "CYAN",    LCD_COLOR_CYAN },
+    { "MAGENTA", LCD_COLOR_MAGENTA },
+    { "WHITE",   LCD_COLOR_WHITE },
+  };
+  const int count = sizeof(bars) / sizeof(bars[0]);
+  const int bar_height = LCD_H / count;
+
+  lcd_clear(LCD_COLOR_BLACK);
+  for (int i = 0; i < count; ++i)
+  {
+    int y = i * bar_height;
+    fill_rect(0, y, LCD_W, bar_height, bars[i].raw);
+    draw_text(4, y + (bar_height - 14) / 2, bars[i].name, 2, LCD_COLOR_BLACK);
+  }
+}
+
 esp_err_t lcd_init(void)
 {
   gpio_config_t io = {
@@ -324,6 +349,9 @@ esp_err_t lcd_init(void)
   cmd(0xB6); { const uint8_t d[] = {0x08,0x82,0x27}; data(d,sizeof(d)); }
   cmd(0xF2); data8(0x00);
   cmd(0x26); data8(0x01);
+  //-- 0x20 (INVOFF) had no visible effect on this panel; try 0x21 (INVON)
+  //-- since some ILI9341/9342 clones have inversion semantics reversed.
+  cmd(0x21);
   cmd(0x11); vTaskDelay(pdMS_TO_TICKS(120));
   cmd(0x29); vTaskDelay(pdMS_TO_TICKS(20));
 

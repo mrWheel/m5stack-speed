@@ -93,6 +93,34 @@ The LCD is driven directly through SPI. Do not replace it with a graphics framew
 
 The LCD and SD card share the M5Stack VSPI bus on SPI3. The shared bus pins are MOSI GPIO23, MISO GPIO19, and SCLK GPIO18. LCD CS is GPIO14 and SD CS is GPIO4. Do not initialize a second SPI bus for the SD card or change either device's chip-select pin.
 
+### LCD Color Correctness (confirmed on hardware)
+
+This specific ILI9342C panel requires Display Inversion mode to be explicitly turned **ON** during init, or every color renders as its bitwise-inverted opposite (for example intended white renders as black, intended green renders as purple). This was diagnosed and confirmed using `lcd_color_test()` in `components/lcd/lcd.c`, which draws labeled RGB565 bars on screen for a physical photo comparison.
+
+Required and confirmed-working fix:
+
+- `lcd_init()` in `components/lcd/lcd.c` must send `cmd(0x21)` (Display Inversion ON) during panel initialization, after the gamma/COLMOD setup and before sleep-out (`cmd(0x11)`). Do not remove this command or change it to `0x20`.
+- With `cmd(0x21)` sent, `LCD_COLOR_*` macros in `components/lcd/include/lcd.h` use **true, standard RGB565 values** (no byte-swapping or bit-inversion pre-correction needed).
+
+Confirmed primary/secondary color macros (standard RGB565, verified correct on the physical display with `cmd(0x21)` active):
+
+```c
+#define LCD_COLOR_BLACK    0x0000
+#define LCD_COLOR_WHITE    0xFFFF
+#define LCD_COLOR_RED      0xF800
+#define LCD_COLOR_GREEN    0x07E0
+#define LCD_COLOR_BLUE     0x001F
+#define LCD_COLOR_YELLOW   0xFFE0
+#define LCD_COLOR_CYAN     0x07FF
+#define LCD_COLOR_MAGENTA  0xF81F
+```
+
+Rules for future color changes:
+
+- Always add new UI colors as a named `LCD_COLOR_*` macro in `lcd.h` using a true, standard RGB565 value. Never use a raw hex color directly in draw calls.
+- Never remove or bypass `cmd(0x21)` in `lcd_init()`. If colors ever look wrong again on this panel, verify Display Inversion state first before assuming a color macro or byte-order problem.
+- If a different physical display panel is ever substituted, re-run the `lcd_color_test()` bar test and re-confirm before trusting these values.
+
 ### Buttons And Battery
 
 The board component uses:

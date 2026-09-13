@@ -264,6 +264,17 @@ void app_main(void)
   ESP_ERROR_CHECK(board_init());
   ESP_ERROR_CHECK(lcd_init());
 
+  //-- Set to 1 to show the color-mapping diagnostic screen instead of the normal UI.
+#define LCD_RUN_COLOR_TEST 0
+#if LCD_RUN_COLOR_TEST
+  lcd_set_backlight(true);
+  lcd_color_test();
+  while (true)
+  {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+#endif
+
   esp_err_t sdcard_err = sdcard_init();
   if (sdcard_err != ESP_OK)
   {
