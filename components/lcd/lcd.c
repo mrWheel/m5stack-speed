@@ -390,7 +390,8 @@ void lcd_render(const lcd_view_t *v)
     if (full || !s_prev.menu_action || v->action_selection != s_prev.action_selection ||
         v->storage_available != s_prev.storage_available ||
         v->storage_total_bytes != s_prev.storage_total_bytes ||
-        v->storage_free_bytes != s_prev.storage_free_bytes)
+        v->storage_free_bytes != s_prev.storage_free_bytes ||
+        v->trip_number != s_prev.trip_number)
     {
       const char *action = "UNKNOWN";
       switch (v->action_selection)
@@ -422,8 +423,19 @@ void lcd_render(const lcd_view_t *v)
       }
       else
       {
-        draw_text_centered(92, "EXECUTING", 3, LCD_COLOR_CYAN);
-        draw_text_centered(130, action, 3, LCD_COLOR_YELLOW);
+        if (v->action_selection == 0)
+        {
+          draw_text_centered(75, "EXECUTING", 3, LCD_COLOR_CYAN);
+          draw_text_centered(115, action, 3, LCD_COLOR_YELLOW);
+          char trip_str[32];
+          snprintf(trip_str, sizeof(trip_str), "New File [%03u]", (unsigned)v->trip_number);
+          draw_text_centered(155, trip_str, 2, LCD_COLOR_WHITE);
+        }
+        else
+        {
+          draw_text_centered(92, "EXECUTING", 3, LCD_COLOR_CYAN);
+          draw_text_centered(130, action, 3, LCD_COLOR_YELLOW);
+        }
       }
     }
     s_prev = *v;

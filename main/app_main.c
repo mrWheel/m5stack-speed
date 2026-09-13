@@ -447,6 +447,7 @@ void app_main(void)
         .menu_selection = g_menu_selection,
         .menu_action = g_menu_action_active,
         .action_selection = g_menu_action_selection,
+        .trip_number = sdcard_get_trip_number(),
         .wifi_status = wifi_status,
       };
       lcd_render(&view);

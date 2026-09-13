@@ -44,6 +44,7 @@ typedef struct
   uint8_t menu_selection;
   bool menu_action;
   uint8_t action_selection;
+  uint16_t trip_number;
   lcd_wifi_status_t wifi_status;
 } lcd_view_t;
 

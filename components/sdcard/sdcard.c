@@ -1,5 +1,6 @@
 #include "sdcard.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -8,6 +9,8 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "ff.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "sdmmc_cmd.h"
 
 #define SD_MOUNT_POINT SDCARD_MOUNT_POINT
@@ -20,6 +23,74 @@ static FILE *s_trip_file;
 static bool s_mounted;
 static uint32_t s_last_sequence;
 static char s_trip_path[32];
+static bool s_has_last_coord;
+static double s_last_lat;
+static double s_last_lon;
+static uint16_t s_current_trip_number;
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+//-- Load the next trip file sequence number from NVS.
+static uint16_t load_trip_number(void)
+{
+  nvs_handle_t nvs;
+  uint16_t num = 0;
+  if (nvs_open("speed", NVS_READONLY, &nvs) == ESP_OK)
+  {
+    nvs_get_u16(nvs, "trip_num", &num);
+    nvs_close(nvs);
+  }
+  return num % 1000;
+}
+
+//-- Save the trip file sequence number to NVS.
+static void save_trip_number(uint16_t num)
+{
+  nvs_handle_t nvs;
+  if (nvs_open("speed", NVS_READWRITE, &nvs) == ESP_OK)
+  {
+    nvs_set_u16(nvs, "trip_num", num % 1000);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+  }
+}
+
+//-- Calculate distance in meters between two lat/lon coordinates using the Haversine formula.
+static double calculate_distance_m(double lat1, double lon1, double lat2, double lon2)
+{
+  double lat1_rad = lat1 * (M_PI / 180.0);
+  double lat2_rad = lat2 * (M_PI / 180.0);
+  double delta_lat = (lat2 - lat1) * (M_PI / 180.0);
+  double delta_lon = (lon2 - lon1) * (M_PI / 180.0);
+
+  double sin_dlat = sin(delta_lat / 2.0);
+  double sin_dlon = sin(delta_lon / 2.0);
+
+  double a = sin_dlat * sin_dlat + cos(lat1_rad) * cos(lat2_rad) * sin_dlon * sin_dlon;
+  double c = 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+
+  const double earth_radius_m = 6371000.0;
+  return earth_radius_m * c;
+}
+
+//-- Calculate required distance threshold based on current speed in km/h.
+//-- Speed <= 0 km/h: 5.0 meters minimum.
+//-- Speed >= 100 km/h: 50.0 meters.
+//-- In between: linear interpolation between 5.0m and 50.0m.
+static float calculate_required_distance_m(float speed_kmh)
+{
+  if (speed_kmh <= 0.0f)
+  {
+    return 5.0f;
+  }
+  if (speed_kmh >= 100.0f)
+  {
+    return 50.0f;
+  }
+  return 5.0f + (speed_kmh / 100.0f) * 45.0f;
+}
 
 static void clear_status(sdcard_status_t *status)
 {
@@ -71,39 +142,34 @@ static esp_err_t write_text(const char *text)
 
 static esp_err_t create_trip_file(void)
 {
-  for (unsigned int id = 0; id <= 999; ++id)
-  {
-    snprintf(s_trip_path, sizeof(s_trip_path), SD_MOUNT_POINT "/trip-%03u.kml", id);
-    FILE *file = fopen(s_trip_path, "r");
-    if (file)
-    {
-      fclose(file);
-      continue;
-    }
+  uint16_t trip_id = load_trip_number();
+  snprintf(s_trip_path, sizeof(s_trip_path), SD_MOUNT_POINT "/trip-%03u.kml", (unsigned)trip_id);
 
-    s_trip_file = fopen(s_trip_path, "w");
-    if (!s_trip_file)
-    {
-      ESP_LOGE(TAG, "Cannot create %s", s_trip_path);
-      return ESP_FAIL;
-    }
-    if (write_text("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                   "<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document>\n"
-                   "<name>GPS Trip</name><Placemark><LineString><tessellate>1</tessellate>\n"
-                   "<coordinates>\n") != ESP_OK || fflush(s_trip_file) != 0)
-    {
-      fclose(s_trip_file);
-      s_trip_file = NULL;
-      remove(s_trip_path);
-      return ESP_FAIL;
-    }
-    s_last_sequence = 0;
-    ESP_LOGI(TAG, "Writing %s", s_trip_path);
-    return ESP_OK;
+  s_trip_file = fopen(s_trip_path, "w");
+  if (!s_trip_file)
+  {
+    ESP_LOGE(TAG, "Cannot create %s", s_trip_path);
+    return ESP_FAIL;
+  }
+  if (write_text("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                 "<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document>\n"
+                 "<name>GPS Trip</name><Placemark><LineString><tessellate>1</tessellate>\n"
+                 "<coordinates>\n") != ESP_OK || fflush(s_trip_file) != 0)
+  {
+    fclose(s_trip_file);
+    s_trip_file = NULL;
+    remove(s_trip_path);
+    return ESP_FAIL;
   }
 
-  ESP_LOGE(TAG, "No unused trip file identifier remains");
-  return ESP_ERR_NO_MEM;
+  //-- Save the next sequence number in NVS (wraps from 999 to 000).
+  save_trip_number((trip_id + 1) % 1000);
+
+  s_current_trip_number = trip_id;
+  s_last_sequence = 0;
+  s_has_last_coord = false;
+  ESP_LOGI(TAG, "Writing %s", s_trip_path);
+  return ESP_OK;
 }
 
 esp_err_t sdcard_init(void)
@@ -192,6 +258,19 @@ esp_err_t sdcard_append_fix(const gps_data_t *gps)
   }
   if (gps->sequence == 0) return ESP_ERR_INVALID_ARG;
 
+  //-- If we already wrote a coordinate for this trip, check distance and speed threshold.
+  if (s_has_last_coord)
+  {
+    double dist_m = calculate_distance_m(s_last_lat, s_last_lon, gps->latitude_deg, gps->longitude_deg);
+    float required_dist_m = calculate_required_distance_m(gps->speed_kmh);
+
+    if (dist_m < (double)required_dist_m)
+    {
+      s_last_sequence = gps->sequence;
+      return ESP_OK;
+    }
+  }
+
   char coordinate[96];
   int written = snprintf(coordinate, sizeof(coordinate), "%.7f,%.7f,%.2f\n",
                          gps->longitude_deg, gps->latitude_deg, gps->altitude_m);
@@ -202,6 +281,9 @@ esp_err_t sdcard_append_fix(const gps_data_t *gps)
     return ESP_FAIL;
   }
   s_last_sequence = gps->sequence;
+  s_last_lat = gps->latitude_deg;
+  s_last_lon = gps->longitude_deg;
+  s_has_last_coord = true;
   return ESP_OK;
 }
 
@@ -209,6 +291,11 @@ void sdcard_get_status(sdcard_status_t *status)
 {
   if (!status) return;
   update_status(status);
+}
+
+uint16_t sdcard_get_trip_number(void)
+{
+  return s_current_trip_number;
 }
 
 esp_err_t sdcard_finish(void)
