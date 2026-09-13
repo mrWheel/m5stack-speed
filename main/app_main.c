@@ -14,6 +14,7 @@
 #include "board.h"
 #include "gps.h"
 #include "lcd.h"
+#include "sdcard.h"
 #include "speedometer.h"
 
 static const char *TAG = "m5speed";
@@ -24,6 +25,7 @@ static bool g_display_on = true;
 static bool g_display_forced_off = false;
 static int64_t g_last_user_activity_us = 0;
 static uint32_t g_last_total_save_m = 0;
+static sdcard_status_t g_storage_status;
 
 static float load_total_distance_m(void)
 {
@@ -102,6 +104,10 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       {
         speedometer_reset_trip(speedo);
         g_show_total = false;
+        if (sdcard_reset_trip() != ESP_OK)
+        {
+          ESP_LOGE(TAG, "Unable to create the next trip export");
+        }
       }
       else
       {
@@ -141,6 +147,12 @@ void app_main(void)
   ESP_ERROR_CHECK(board_init());
   ESP_ERROR_CHECK(lcd_init());
 
+  esp_err_t sdcard_err = sdcard_init();
+  if (sdcard_err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "SD card unavailable: %s", esp_err_to_name(sdcard_err));
+  }
+
   lcd_clear(LCD_COLOR_BLACK);
   lcd_set_backlight(true);
 
@@ -163,6 +175,7 @@ void app_main(void)
   int64_t last_battery_us = 0;
   int battery_pct = board_battery_level();
   bool charging = board_is_charging();
+  sdcard_get_status(&g_storage_status);
 
   ESP_LOGI(TAG, "M5Stack Speed started");
   ESP_LOGI(TAG, "GPS UART: RX=GPIO16, TX=GPIO17, 115200 8N1");
@@ -181,6 +194,10 @@ void app_main(void)
     if (gps_get_latest(&gps))
     {
       speedometer_update(&speedo, &gps, now_us);
+      if (sdcard_append_fix(&gps) != ESP_OK && g_storage_status.mounted)
+      {
+        ESP_LOGE(TAG, "Unable to append GPS fix to SD card");
+      }
     }
 
     if ((now_us - last_battery_us) >= 2000000LL)
@@ -188,6 +205,7 @@ void app_main(void)
       last_battery_us = now_us;
       battery_pct = board_battery_level();
       charging = board_is_charging();
+      sdcard_get_status(&g_storage_status);
     }
 
     if (g_display_on && !g_display_forced_off)
@@ -219,6 +237,8 @@ void app_main(void)
         .satellites = speedo.satellites,
         .battery_pct = battery_pct,
         .charging = charging,
+        .storage_available = g_storage_status.mounted,
+        .storage_free_percent = g_storage_status.free_percent,
       };
       lcd_render(&view);
     }

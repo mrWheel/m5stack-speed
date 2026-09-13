@@ -22,6 +22,8 @@ typedef struct
   uint8_t satellites;
   int battery_pct;
   bool charging;
+  bool storage_available;
+  uint8_t storage_free_percent;
 } lcd_view_t;
 
 esp_err_t lcd_init(void);

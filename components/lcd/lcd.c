@@ -12,6 +12,7 @@
 
 #define LCD_HOST SPI3_HOST
 #define LCD_MOSI GPIO_NUM_23
+#define LCD_MISO GPIO_NUM_19
 #define LCD_SCLK GPIO_NUM_18
 #define LCD_CS   GPIO_NUM_14
 #define LCD_DC   GPIO_NUM_27
@@ -252,7 +253,7 @@ esp_err_t lcd_init(void)
 
   spi_bus_config_t bus = {
     .mosi_io_num = LCD_MOSI,
-    .miso_io_num = -1,
+    .miso_io_num = LCD_MISO,
     .sclk_io_num = LCD_SCLK,
     .quadwp_io_num = -1,
     .quadhd_io_num = -1,
@@ -376,6 +377,24 @@ void lcd_render(const lcd_view_t *v)
       snprintf(distance, sizeof(distance), "%.1f KM", v->distance_m / 1000.0f);
     }
     draw_text_centered(199, distance, 4, LCD_COLOR_YELLOW);
+  }
+
+  if (full || v->storage_available != s_prev.storage_available ||
+      v->storage_free_percent != s_prev.storage_free_percent)
+  {
+    fill_rect(0, 232, LCD_W, 8, LCD_COLOR_BLACK);
+    if (v->storage_available)
+    {
+      fill_rect(5, 234, 220, 4, LCD_COLOR_DARKGREY);
+      fill_rect(5, 234, 220 * v->storage_free_percent / 100, 4, LCD_COLOR_GREEN);
+      char storage[12];
+      snprintf(storage, sizeof(storage), "SD %u%%", v->storage_free_percent);
+      draw_text(232, 232, storage, 1, LCD_COLOR_WHITE);
+    }
+    else
+    {
+      draw_text(5, 232, "SD ERR", 1, LCD_COLOR_RED);
+    }
   }
 
   s_prev = *v;

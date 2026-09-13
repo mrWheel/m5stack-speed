@@ -51,6 +51,17 @@ static bool sentence_type(const char *field0, const char *type)
   return n >= 3 && strcmp(field0 + n - 3, type) == 0;
 }
 
+static double parse_coordinate(const char *value, const char *hemisphere)
+{
+  if (!value || !value[0] || !hemisphere || !hemisphere[0]) return 0.0;
+
+  double raw = strtod(value, NULL);
+  double degrees = (double)((int)(raw / 100.0));
+  double coordinate = degrees + (raw - degrees * 100.0) / 60.0;
+  if (hemisphere[0] == 'S' || hemisphere[0] == 'W') coordinate = -coordinate;
+  return coordinate;
+}
+
 static void publish_rmc(char *line)
 {
   char *star = strchr(line, '*');
@@ -63,11 +74,15 @@ static void publish_rmc(char *line)
   bool valid = fields[2][0] == 'A';
   float knots = fields[7][0] ? strtof(fields[7], NULL) : 0.0f;
   float course = fields[8][0] ? strtof(fields[8], NULL) : 0.0f;
+  double latitude = parse_coordinate(fields[3], fields[4]);
+  double longitude = parse_coordinate(fields[5], fields[6]);
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
   s_latest.fix_valid = valid;
   s_latest.speed_kmh = valid ? knots * 1.852f : 0.0f;
   s_latest.course_deg = course;
+  s_latest.latitude_deg = latitude;
+  s_latest.longitude_deg = longitude;
   s_latest.sample_time_us = esp_timer_get_time();
   s_latest.sequence++;
   xSemaphoreGive(s_lock);
@@ -84,11 +99,13 @@ static void publish_gga(char *line)
 
   int quality = fields[6][0] ? atoi(fields[6]) : 0;
   int sats = fields[7][0] ? atoi(fields[7]) : 0;
+  float altitude = fields[9] && fields[9][0] ? strtof(fields[9], NULL) : 0.0f;
   if (sats < 0) sats = 0;
   if (sats > 99) sats = 99;
 
   xSemaphoreTake(s_lock, portMAX_DELAY);
   s_latest.satellites = (uint8_t)sats;
+  s_latest.altitude_m = altitude;
   if (quality == 0) s_latest.fix_valid = false;
   xSemaphoreGive(s_lock);
 }

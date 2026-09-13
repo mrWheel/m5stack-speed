@@ -20,6 +20,9 @@ typedef struct
   bool fix_valid;
   float speed_kmh;
   float course_deg;
+  double latitude_deg;
+  double longitude_deg;
+  float altitude_m;
   uint8_t satellites;
   int64_t sample_time_us;
   uint32_t sequence;

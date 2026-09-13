@@ -1,5 +1,8 @@
 # Project Prompt
 
+## Non-negotiable requirements
+Use native ESP-IDF (not Arduino) and keep the project directly usable with the Espressif VS Code extension.
+
 ## Source of Truth
 
 The existing source code is the only authoritative specification for this project.
@@ -226,3 +229,8 @@ After code changes:
 ## Change Discipline
 
 Make focused edits. Do not remove existing functionality. Do not change hardware pin assignments, display orientation, protocol settings, persistent-storage keys, or user controls without explicit evidence from the source and a direct task requirement.
+
+## Miscalanious
+
+The idf.py command is in 'source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh"'
+
