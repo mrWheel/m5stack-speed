@@ -1,0 +1,8 @@
+{
+  "idf.adapterTargetName": "esp32",
+  "idf.openOcdConfigs": [
+    "board/esp32-wrover-kit-3.3v.cfg"
+  ],
+  "idf.currentSetup": "/Users/willema/.espressif/v6.0.2/esp-idf",
+  "idf.port": "/dev/tty.usbserial-5A6C0468171"
+}
