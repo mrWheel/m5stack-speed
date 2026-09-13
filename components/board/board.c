@@ -45,6 +45,17 @@ static esp_err_t ip5306_read(uint8_t reg, uint8_t *value)
                                       pdMS_TO_TICKS(50));
 }
 
+static const char *button_name(board_button_t button)
+{
+  switch (button)
+  {
+    case BOARD_BUTTON_A: return "A (LEFT)";
+    case BOARD_BUTTON_B: return "B (MIDDLE)";
+    case BOARD_BUTTON_C: return "C (RIGHT)";
+    default: return "UNKNOWN";
+  }
+}
+
 static void button_task(void *arg)
 {
   (void)arg;
@@ -77,6 +88,10 @@ static void button_task(void *arg)
             .button = b->button,
             .long_press = held >= long_press_us,
           };
+          ESP_LOGI(TAG, "Button %s: %s press (%lld ms)",
+                   button_name(event.button),
+                   event.long_press ? "LONG" : "SHORT",
+                   held / 1000);
           xQueueSend(s_button_queue, &event, 0);
         }
         b->down = false;

@@ -9,6 +9,7 @@
 #define LCD_COLOR_GREEN 0x07E0
 #define LCD_COLOR_YELLOW 0xFFE0
 #define LCD_COLOR_RED 0xF800
+#define LCD_COLOR_PURPLE 0xF81F
 #define LCD_COLOR_CYAN 0x07FF
 #define LCD_COLOR_DARKGREY 0x4208
 
@@ -24,6 +25,13 @@ typedef struct
   bool charging;
   bool storage_available;
   uint8_t storage_free_percent;
+  uint64_t storage_total_bytes;
+  uint64_t storage_free_bytes;
+  bool system_menu;
+  bool storage_details;
+  uint8_t menu_selection;
+  bool menu_action;
+  uint8_t action_selection;
 } lcd_view_t;
 
 esp_err_t lcd_init(void);

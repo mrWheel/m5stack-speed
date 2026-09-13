@@ -23,9 +23,34 @@ static bool g_show_average = false;
 static bool g_show_total = false;
 static bool g_display_on = true;
 static bool g_display_forced_off = false;
+static bool g_system_menu = false;
+static uint8_t g_menu_selection = 0;
+static bool g_menu_action_active = false;
+static bool g_menu_action_pending = false;
+static uint8_t g_menu_action_selection = 0;
+static int64_t g_menu_action_requested_us = 0;
 static int64_t g_last_user_activity_us = 0;
 static uint32_t g_last_total_save_m = 0;
 static sdcard_status_t g_storage_status;
+
+static const char *menu_option_name(uint8_t selection)
+{
+  switch (selection)
+  {
+    case 0: return "Reset Trip";
+    case 1: return "Used Free";
+    case 2: return "Format SD";
+    case 3: return "Exit";
+    default: return "Unknown";
+  }
+}
+
+static void log_menu_cursor(board_button_t button)
+{
+  ESP_LOGI("board", "Button %s => [%s]",
+           button == BOARD_BUTTON_A ? "A (LEFT)" : "C (RIGHT)",
+           menu_option_name(g_menu_selection));
+}
 
 static float load_total_distance_m(void)
 {
@@ -86,8 +111,58 @@ static void turn_display_off(bool forced)
   g_display_forced_off = forced;
 }
 
+static void reset_trip(speedometer_t *speedo)
+{
+  speedometer_reset_trip(speedo);
+  g_show_total = false;
+  if (sdcard_reset_trip() != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Unable to create the next trip export");
+  }
+}
+
+static void format_sdcard(void)
+{
+  ESP_LOGI("board", "Button B (MIDDLE) => [Formatting SD]");
+  if (sdcard_format() != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Unable to format the SD card");
+  }
+  sdcard_get_status(&g_storage_status);
+}
+
 static void handle_button(board_button_t button, bool long_press, speedometer_t *speedo)
 {
+  if (g_menu_action_active)
+  {
+    if (button == BOARD_BUTTON_B && !long_press)
+    {
+      g_menu_action_active = false;
+      g_menu_action_pending = false;
+      g_system_menu = true;
+      lcd_force_redraw();
+      ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
+    }
+    return;
+  }
+
+  if (button == BOARD_BUTTON_B && long_press)
+  {
+    g_system_menu = !g_system_menu;
+    g_menu_selection = 0;
+    if (g_system_menu)
+    {
+      turn_display_on();
+      ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
+    }
+    else
+    {
+      ESP_LOGI("board", "System Menu => [Closed]");
+    }
+    lcd_force_redraw();
+    return;
+  }
+
   if (!g_display_on)
   {
     turn_display_on();
@@ -97,17 +172,49 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
 
   g_last_user_activity_us = esp_timer_get_time();
 
+  if (g_system_menu)
+  {
+    switch (button)
+    {
+      case BOARD_BUTTON_A:
+        if (!long_press && g_menu_selection > 0)
+        {
+          --g_menu_selection;
+          log_menu_cursor(button);
+        }
+        break;
+      case BOARD_BUTTON_B:
+        if (!long_press)
+        {
+          ESP_LOGI("board", "Button B (MIDDLE) => [%s]",
+                   menu_option_name(g_menu_selection));
+          g_menu_action_active = true;
+          g_menu_action_pending = true;
+          g_menu_action_selection = g_menu_selection;
+          g_menu_action_requested_us = esp_timer_get_time();
+          g_system_menu = false;
+          lcd_force_redraw();
+        }
+        break;
+      case BOARD_BUTTON_C:
+        if (!long_press && g_menu_selection < 3)
+        {
+          ++g_menu_selection;
+          log_menu_cursor(button);
+        }
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
   switch (button)
   {
     case BOARD_BUTTON_A:
       if (long_press)
       {
-        speedometer_reset_trip(speedo);
-        g_show_total = false;
-        if (sdcard_reset_trip() != ESP_OK)
-        {
-          ESP_LOGE(TAG, "Unable to create the next trip export");
-        }
+        reset_trip(speedo);
       }
       else
       {
@@ -116,7 +223,15 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       break;
 
     case BOARD_BUTTON_B:
-      turn_display_off(true);
+      if (g_display_on)
+      {
+        turn_display_off(true);
+      }
+      else
+      {
+        turn_display_on();
+        g_display_forced_off = false;
+      }
       break;
 
     case BOARD_BUTTON_C:
@@ -190,6 +305,29 @@ void app_main(void)
       handle_button(event.button, event.long_press, &speedo);
     }
 
+    if (g_menu_action_active && g_menu_action_pending &&
+        now_us - g_menu_action_requested_us >= 100000LL)
+    {
+      g_menu_action_pending = false;
+      if (g_menu_action_selection == 0)
+      {
+        reset_trip(&speedo);
+      }
+      else if (g_menu_action_selection == 1)
+      {
+        sdcard_get_status(&g_storage_status);
+      }
+      else if (g_menu_action_selection == 2)
+      {
+        format_sdcard();
+        g_menu_action_active = false;
+        g_menu_action_pending = false;
+        g_system_menu = true;
+        lcd_force_redraw();
+        ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
+      }
+    }
+
     gps_data_t gps;
     if (gps_get_latest(&gps))
     {
@@ -239,6 +377,12 @@ void app_main(void)
         .charging = charging,
         .storage_available = g_storage_status.mounted,
         .storage_free_percent = g_storage_status.free_percent,
+        .storage_total_bytes = g_storage_status.total_bytes,
+        .storage_free_bytes = g_storage_status.free_bytes,
+        .system_menu = g_system_menu,
+        .menu_selection = g_menu_selection,
+        .menu_action = g_menu_action_active,
+        .action_selection = g_menu_action_selection,
       };
       lcd_render(&view);
     }

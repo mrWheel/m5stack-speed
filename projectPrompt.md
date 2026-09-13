@@ -91,6 +91,8 @@ The display has the buttons physically below it. Preserve the current top-to-bot
 
 The LCD is driven directly through SPI. Do not replace it with a graphics framework or a different display abstraction without an explicit request.
 
+The LCD and SD card share the M5Stack VSPI bus on SPI3. The shared bus pins are MOSI GPIO23, MISO GPIO19, and SCLK GPIO18. LCD CS is GPIO14 and SD CS is GPIO4. Do not initialize a second SPI bus for the SD card or change either device's chip-select pin.
+
 ### Buttons And Battery
 
 The board component uses:
@@ -179,15 +181,40 @@ Distance is integrated from valid GNSS speed. Preserve the current stationary th
 
 The SD-card storage implementation owns card mounting, free-space reporting, trip file numbering, KML file lifecycle, coordinate appends, flushing, and error handling. GPS parsing and display rendering must not directly own SD-card protocol details.
 
+Free-space reporting must use the mounted FatFs volume and `f_getfree()`. Do not use `statvfs()` for SD-card capacity reporting because the selected ESP-IDF version does not implement it and returns `ENOSYS`. A mounted card must remain usable even when a filesystem-statistics read fails; report the error without crashing.
+
+Formatting must use the ESP-IDF SD-card FAT formatter. The current trip file must be closed before formatting, and a new `trip-nnn.kml` file must be created after formatting succeeds.
+
 ## User Interface Behavior
 
-The requested controls are source-defined:
+The current controls are source-defined:
 
-- The left button, Button A, activates TRIP mode.
-- A long press of the left button resets the active trip and creates the next `trip-nnn.kml` export file.
-- Button B turns the display off.
-- The right button, Button C, activates SPEED mode.
+- Short Button A toggles the displayed distance between TRIP and TOTAL.
+- Long Button A resets the active trip and creates the next `trip-nnn.kml` export file.
+- Short Button B toggles the display backlight on or off when the system menu is closed.
+- Long Button B opens or closes the system menu.
+- Short Button C toggles SPEED and AVG SPEED when the system menu is closed.
 - Pressing a button while the display is off wakes it.
+
+### System Menu
+
+While the system menu is open, the normal application functions of all buttons are disabled:
+
+- Short Button A moves the purple cursor up.
+- Short Button C moves the purple cursor down.
+- Short Button B executes the function under the cursor.
+- Long Button B closes the system menu.
+
+The menu options are:
+
+1. `Reset Trip`: resets the active trip and creates a new KML file.
+2. `Used Free`: shows the actual used and free SD-card space in kB on the Action screen.
+3. `Format SD`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
+4. `Exit`: closes the system menu.
+
+After a short Button B execution, the display is cleared and shows an Action screen. Reset and format actions show `EXECUTING` and the selected operation. The `Used Free` Action screen shows SD-card information instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SD` action returns automatically to the system menu.
+
+Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
 In TRIP mode:
 
@@ -210,7 +237,7 @@ The display also shows:
 - Battery level.
 - Charging state.
 
-The lower display area must include a storage indicator bar showing the remaining usable SD-card space. The bar must update from actual mounted-card capacity and free-space values, not from a hard-coded estimate. Handle an absent, unmounted, or unreadable card with a clear error state without crashing the application.
+The lower display area must include a storage indicator bar showing the remaining usable SD-card space. The bar must update from actual mounted-card FatFs capacity and free-space values, not from a hard-coded estimate. Handle an absent, unmounted, or unreadable card with a clear red error state without crashing the application. SD-card error text must be rendered in red consistently.
 
 The backlight timeout depends on battery level and is disabled while charging. Preserve the existing timeout behavior in `app_main.c`.
 

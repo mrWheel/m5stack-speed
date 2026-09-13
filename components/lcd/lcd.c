@@ -324,6 +324,78 @@ void lcd_render(const lcd_view_t *v)
     s_force_redraw = false;
   }
 
+  if (v->menu_action)
+  {
+    if (full || !s_prev.menu_action || v->action_selection != s_prev.action_selection ||
+        v->storage_available != s_prev.storage_available ||
+        v->storage_total_bytes != s_prev.storage_total_bytes ||
+        v->storage_free_bytes != s_prev.storage_free_bytes)
+    {
+      const char *action = "UNKNOWN";
+      switch (v->action_selection)
+      {
+        case 0: action = "RESET TRIP"; break;
+        case 1: action = "USED FREE"; break;
+        case 2: action = "FORMAT SD"; break;
+        case 3: action = "EXIT"; break;
+        default: break;
+      }
+      fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
+      if (v->action_selection == 1)
+      {
+        draw_text_centered(72, "SD CARD", 3, LCD_COLOR_CYAN);
+        if (v->storage_available)
+        {
+          uint64_t total_kb = v->storage_total_bytes / 1024;
+          uint64_t free_kb = v->storage_free_bytes / 1024;
+          char storage[48];
+          snprintf(storage, sizeof(storage), "USED:%llu KB", total_kb - free_kb);
+          draw_text_centered(120, storage, 2, LCD_COLOR_WHITE);
+          snprintf(storage, sizeof(storage), "FREE:%llu KB", free_kb);
+          draw_text_centered(154, storage, 2, LCD_COLOR_GREEN);
+        }
+        else
+        {
+          draw_text_centered(132, "SD UNAVAILABLE", 2, LCD_COLOR_RED);
+        }
+      }
+      else
+      {
+        draw_text_centered(92, "EXECUTING", 3, LCD_COLOR_CYAN);
+        draw_text_centered(130, action, 3, LCD_COLOR_YELLOW);
+      }
+    }
+    s_prev = *v;
+    s_have_prev = true;
+    return;
+  }
+
+  if (v->system_menu)
+  {
+    if (full || !s_prev.system_menu ||
+        v->storage_total_bytes != s_prev.storage_total_bytes ||
+        v->storage_free_bytes != s_prev.storage_free_bytes ||
+        v->storage_available != s_prev.storage_available ||
+        v->storage_details != s_prev.storage_details ||
+        v->menu_selection != s_prev.menu_selection)
+    {
+      fill_rect(0, 31, LCD_W, 209, LCD_COLOR_BLACK);
+      draw_text_centered(42, "SYSTEM MENU", 3, LCD_COLOR_CYAN);
+      uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t format_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t exit_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      draw_text(18, 74, "A RESET TRIP", 2, reset_color);
+      draw_text(18, 108, "B USED FREE", 2, storage_color);
+      draw_text(18, 142, "C FORMAT SD", 2, format_color);
+      draw_text(18, 176, "Z EXIT", 2, exit_color);
+
+    }
+    s_prev = *v;
+    s_have_prev = true;
+    return;
+  }
+
   if (full || v->gps_fix != s_prev.gps_fix || v->satellites != s_prev.satellites ||
       v->battery_pct != s_prev.battery_pct || v->charging != s_prev.charging)
   {

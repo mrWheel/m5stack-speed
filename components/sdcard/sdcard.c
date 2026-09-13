@@ -2,12 +2,12 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/statvfs.h>
 
 #include "driver/gpio.h"
 #include "driver/sdspi_host.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "ff.h"
 #include "sdmmc_cmd.h"
 
 #define SD_MOUNT_POINT "/sdcard"
@@ -28,17 +28,31 @@ static void clear_status(sdcard_status_t *status)
 
 static esp_err_t update_status(sdcard_status_t *status)
 {
-  struct statvfs filesystem;
-  if (!s_mounted || statvfs(SD_MOUNT_POINT, &filesystem) != 0)
+  FATFS *filesystem = NULL;
+  DWORD free_clusters = 0;
+  if (!s_mounted || !s_card)
   {
     clear_status(status);
     return ESP_FAIL;
   }
 
-  uint64_t block_size = filesystem.f_frsize ? filesystem.f_frsize : filesystem.f_bsize;
   status->mounted = true;
-  status->total_bytes = (uint64_t)filesystem.f_blocks * block_size;
-  status->free_bytes = (uint64_t)filesystem.f_bavail * block_size;
+  FRESULT result = f_getfree("0:", &free_clusters, &filesystem);
+  if (result != FR_OK || !filesystem)
+  {
+    ESP_LOGE(TAG, "Unable to read SD filesystem statistics: %d", result);
+    status->mounted = false;
+    status->total_bytes = 0;
+    status->free_bytes = 0;
+    status->free_percent = 0;
+    return ESP_FAIL;
+  }
+
+  uint64_t sector_size = s_card->csd.sector_size;
+  uint64_t total_sectors = ((uint64_t)(filesystem->n_fatent - 2)) * filesystem->csize;
+  uint64_t free_sectors = (uint64_t)free_clusters * filesystem->csize;
+  status->total_bytes = total_sectors * sector_size;
+  status->free_bytes = free_sectors * sector_size;
   status->free_percent = status->total_bytes > 0
     ? (uint8_t)((status->free_bytes * 100U) / status->total_bytes)
     : 0;
@@ -139,6 +153,34 @@ esp_err_t sdcard_reset_trip(void)
     }
     s_trip_file = NULL;
   }
+  return create_trip_file();
+}
+
+esp_err_t sdcard_format(void)
+{
+  if (!s_mounted || !s_card)
+  {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (s_trip_file)
+  {
+    if (fclose(s_trip_file) != 0)
+    {
+      s_trip_file = NULL;
+      return ESP_FAIL;
+    }
+    s_trip_file = NULL;
+  }
+
+  esp_err_t err = esp_vfs_fat_sdcard_format(SD_MOUNT_POINT, s_card);
+  if (err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "SD card format failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  s_last_sequence = 0;
   return create_trip_file();
 }
 
