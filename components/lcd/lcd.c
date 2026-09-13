@@ -397,8 +397,8 @@ void lcd_render(const lcd_view_t *v)
       {
         case 0: action = "RESET TRIP"; break;
         case 1: action = "USED FREE"; break;
-        case 2: action = "FORMAT SD"; break;
-        case 3: action = "EXIT"; break;
+        case 2: action = "STOP SYSTEM"; break;
+        case 3: action = "FORMAT SDCARD"; break;
         default: break;
       }
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
@@ -440,16 +440,19 @@ void lcd_render(const lcd_view_t *v)
         v->storage_details != s_prev.storage_details ||
         v->menu_selection != s_prev.menu_selection)
     {
-      fill_rect(0, 31, LCD_W, 209, LCD_COLOR_BLACK);
-      draw_text_centered(42, "SYSTEM MENU", 3, LCD_COLOR_CYAN);
+      fill_rect(0, 0, LCD_W, 240, LCD_COLOR_BLACK);
+      draw_text(7, 7, "SYSTEM MENU", 2, LCD_COLOR_CYAN);
+      fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
       uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t format_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t exit_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      draw_text(18, 74, "A RESET TRIP", 2, reset_color);
-      draw_text(18, 108, "B USED FREE", 2, storage_color);
-      draw_text(18, 142, "C FORMAT SD", 2, format_color);
-      draw_text(18, 176, "Z EXIT", 2, exit_color);
+      uint16_t stop_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t format_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t exit_color = v->menu_selection == 4 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      draw_text(18, 42, "A NEW TRIP RESET", 2, reset_color);
+      draw_text(18, 71, "B SHOW USED FREE", 2, storage_color);
+      draw_text(18, 100, "C STOP SYSTEM", 2, stop_color);
+      draw_text(18, 129, "D FORMAT SDCARD", 2, format_color);
+      draw_text(18, 158, "Z EXIT", 2, exit_color);
 
     }
     s_prev = *v;

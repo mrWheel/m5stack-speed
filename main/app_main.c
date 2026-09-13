@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -38,10 +39,11 @@ static const char *menu_option_name(uint8_t selection)
 {
   switch (selection)
   {
-    case 0: return "Reset Trip";
-    case 1: return "Used Free";
-    case 2: return "Format SD";
-    case 3: return "Exit";
+    case 0: return "New Trip file and reset Trip";
+    case 1: return "Show Used & Free on SD";
+    case 2: return "Stop system";
+    case 3: return "Format SDcard";
+    case 4: return "Exit";
     default: return "Unknown";
   }
 }
@@ -132,6 +134,15 @@ static void format_sdcard(void)
   sdcard_get_status(&g_storage_status);
 }
 
+static void stop_system(const speedometer_t *speedo)
+{
+  ESP_LOGI(TAG, "Stopping system and entering deep sleep");
+  save_total_distance_m(speedo->total_distance_m);
+  sdcard_finish();
+  lcd_set_backlight(false);
+  esp_deep_sleep_start();
+}
+
 static void handle_button(board_button_t button, bool long_press, speedometer_t *speedo)
 {
   if (g_menu_action_active)
@@ -187,6 +198,13 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       case BOARD_BUTTON_B:
         if (!long_press)
         {
+          if (g_menu_selection == 4)
+          {
+            g_system_menu = false;
+            lcd_force_redraw();
+            ESP_LOGI("board", "System Menu => [Closed]");
+            break;
+          }
           ESP_LOGI("board", "Button B (MIDDLE) => [%s]",
                    menu_option_name(g_menu_selection));
           g_menu_action_active = true;
@@ -198,7 +216,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
         }
         break;
       case BOARD_BUTTON_C:
-        if (!long_press && g_menu_selection < 3)
+        if (!long_press && g_menu_selection < 4)
         {
           ++g_menu_selection;
           log_menu_cursor(button);
@@ -331,6 +349,10 @@ void app_main(void)
         sdcard_get_status(&g_storage_status);
       }
       else if (g_menu_action_selection == 2)
+      {
+        stop_system(&speedo);
+      }
+      else if (g_menu_action_selection == 3)
       {
         format_sdcard();
         g_menu_action_active = false;
