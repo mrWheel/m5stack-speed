@@ -438,10 +438,19 @@ void lcd_render(const lcd_view_t *v)
         v->storage_free_bytes != s_prev.storage_free_bytes ||
         v->storage_available != s_prev.storage_available ||
         v->storage_details != s_prev.storage_details ||
-        v->menu_selection != s_prev.menu_selection)
+        v->menu_selection != s_prev.menu_selection ||
+        v->wifi_status != s_prev.wifi_status)
     {
       fill_rect(0, 0, LCD_W, 240, LCD_COLOR_BLACK);
       draw_text(7, 7, "SYSTEM MENU", 2, LCD_COLOR_CYAN);
+      if (v->wifi_status == LCD_WIFI_CONNECTED)
+      {
+        draw_text(LCD_W - text_width("WIFI", 2) - 7, 7, "WIFI", 2, LCD_COLOR_GREEN);
+      }
+      else if (v->wifi_status == LCD_WIFI_AP_MODE)
+      {
+        draw_text(LCD_W - text_width("AP-MODE", 2) - 7, 7, "AP-MODE", 2, LCD_COLOR_YELLOW);
+      }
       fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
       uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;

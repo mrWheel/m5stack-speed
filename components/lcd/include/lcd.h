@@ -17,6 +17,13 @@
 #define LCD_COLOR_BLUE     0x001F
 #define LCD_COLOR_MAGENTA  0xF81F
 
+typedef enum
+{
+  LCD_WIFI_NONE,
+  LCD_WIFI_CONNECTED,
+  LCD_WIFI_AP_MODE,
+} lcd_wifi_status_t;
+
 typedef struct
 {
   float speed_kmh;
@@ -37,6 +44,7 @@ typedef struct
   uint8_t menu_selection;
   bool menu_action;
   uint8_t action_selection;
+  lcd_wifi_status_t wifi_status;
 } lcd_view_t;
 
 esp_err_t lcd_init(void);

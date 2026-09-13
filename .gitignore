@@ -1,5 +1,37 @@
+# ESP-IDF build output
 build/
+managed_components/
+dependencies.lock
 sdkconfig
 sdkconfig.old
-.vscode/c_cpp_properties.json
+
+# createProjectStructure.py output
+/projects/*
+
+!/projects/project_en.md
+!/projects/project_nl.md
+!/projects/project.json
+!/projects/*.png
+
+
+# ESP-IDF and local tooling
+.espressif/
+.vscode/.cache/
+.clangd
+
+# PlatformIO output, if used locally
+.pio/
+.pio.nosync
+
+# python temp
+__pycache__
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.swp
+*.swo
+*~

@@ -6,6 +6,9 @@
 #include "esp_err.h"
 #include "gps.h"
 
+//-- Mount point used by the SD card FatFs volume, shared with the webserver file manager.
+#define SDCARD_MOUNT_POINT "/sdcard"
+
 typedef struct
 {
   bool mounted;
@@ -20,3 +23,4 @@ esp_err_t sdcard_format(void);
 esp_err_t sdcard_append_fix(const gps_data_t *gps);
 void sdcard_get_status(sdcard_status_t *status);
 esp_err_t sdcard_finish(void);
+

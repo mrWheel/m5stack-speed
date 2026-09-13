@@ -17,6 +17,7 @@
 #include "lcd.h"
 #include "sdcard.h"
 #include "speedometer.h"
+#include "webserver.h"
 
 static const char *TAG = "m5speed";
 
@@ -137,6 +138,7 @@ static void format_sdcard(void)
 static void stop_system(const speedometer_t *speedo)
 {
   ESP_LOGI(TAG, "Stopping system and entering deep sleep");
+  webserver_stop();
   save_total_distance_m(speedo->total_distance_m);
   sdcard_finish();
   lcd_set_backlight(false);
@@ -165,10 +167,12 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
     if (g_system_menu)
     {
       turn_display_on();
+      webserver_start();
       ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
     }
     else
     {
+      webserver_stop();
       ESP_LOGI("board", "System Menu => [Closed]");
     }
     lcd_force_redraw();
@@ -201,6 +205,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
           if (g_menu_selection == 4)
           {
             g_system_menu = false;
+            webserver_stop();
             lcd_force_redraw();
             ESP_LOGI("board", "System Menu => [Closed]");
             break;
@@ -297,6 +302,18 @@ void app_main(void)
   if (sdcard_err != ESP_OK)
   {
     ESP_LOGE(TAG, "SD card unavailable: %s", esp_err_to_name(sdcard_err));
+  }
+
+  esp_err_t webserver_err = webserver_init();
+  if (webserver_err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Webserver unavailable: %s", esp_err_to_name(webserver_err));
+  }
+  else
+  {
+    //-- Verify stored WiFi credentials once at boot, then turn WiFi back off.
+    //-- WiFi and the file-manager server are only active while the System Menu is open.
+    webserver_check_wifi_credentials();
   }
 
   lcd_clear(LCD_COLOR_BLACK);
@@ -401,6 +418,17 @@ void app_main(void)
     {
       last_ui_us = now_us;
 
+      lcd_wifi_status_t wifi_status = LCD_WIFI_NONE;
+      if (g_system_menu)
+      {
+        switch (webserver_get_wifi_status())
+        {
+          case WEBSERVER_WIFI_STA_CONNECTED: wifi_status = LCD_WIFI_CONNECTED; break;
+          case WEBSERVER_WIFI_AP_MODE:       wifi_status = LCD_WIFI_AP_MODE;   break;
+          default:                           wifi_status = LCD_WIFI_NONE;      break;
+        }
+      }
+
       lcd_view_t view = {
         .speed_kmh = g_show_average ? speedometer_average_kmh(&speedo) : speedo.display_speed_kmh,
         .average_mode = g_show_average,
@@ -419,6 +447,7 @@ void app_main(void)
         .menu_selection = g_menu_selection,
         .menu_action = g_menu_action_active,
         .action_selection = g_menu_action_selection,
+        .wifi_status = wifi_status,
       };
       lcd_render(&view);
     }

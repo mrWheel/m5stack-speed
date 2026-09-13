@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M5Stack Speed - File Manager</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1>M5Stack Speed - File Manager</h1>
+
+  <div class="store-select">
+    <label><input type="radio" name="store" value="sd" checked> SD card</label>
+    <label><input type="radio" name="store" value="fs"> LittleFS</label>
+  </div>
+
+  <div class="upload-row">
+    <input type="file" id="uploadFile">
+    <button id="uploadButton">Upload</button>
+  </div>
+
+  <table id="fileTable">
+    <thead>
+      <tr><th>Name</th><th>Size</th><th></th></tr>
+    </thead>
+    <tbody id="fileTableBody"></tbody>
+  </table>
+
+  <p id="statusMessage"></p>
+
+  <script src="/app.js"></script>
+</body>
+</html>

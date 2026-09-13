@@ -10,7 +10,7 @@
 #include "ff.h"
 #include "sdmmc_cmd.h"
 
-#define SD_MOUNT_POINT "/sdcard"
+#define SD_MOUNT_POINT SDCARD_MOUNT_POINT
 #define SD_CS GPIO_NUM_4
 #define SD_HOST SPI3_HOST
 

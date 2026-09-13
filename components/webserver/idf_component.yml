@@ -1,0 +1,6 @@
+dependencies:
+  idf: ">=5.0"
+  michmich/esp-idf-wifi-provisioner: "^0.4.0"
+  joltwallet/littlefs: "^1.22.3"
+  espressif/cjson: "^1.7.18"
+  espressif/mdns: "^1.8.2"
