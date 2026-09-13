@@ -198,21 +198,54 @@ static void draw_segment_digit(int x, int y, int digit, uint16_t color, uint16_t
   fill_rect(x+t, y+h/2-t/2, w-2*t, t, (m&0x40)?color:off);
 }
 
-static void draw_speed(float speed, uint16_t color)
+static void draw_large_value(unsigned value, uint16_t color)
 {
-  int value = (int)lroundf(speed);
-  if (value < 0) value = 0;
   if (value > 999) value = 999;
 
-  int h = value / 100;
-  int t = (value / 10) % 10;
-  int o = value % 10;
+  int hundreds = value / 100;
+  int tens = (value / 10) % 10;
+  int ones = value % 10;
   int x0 = 47;
   uint16_t off = 0x1082;
 
-  draw_segment_digit(x0, 42, value >= 100 ? h : -1, color, off);
-  draw_segment_digit(x0 + 79, 42, value >= 10 ? t : -1, color, off);
-  draw_segment_digit(x0 + 158, 42, o, color, off);
+  draw_segment_digit(x0, 52, value >= 100 ? hundreds : -1, color, off);
+  draw_segment_digit(x0 + 79, 52, value >= 10 ? tens : -1, color, off);
+  draw_segment_digit(x0 + 158, 52, ones, color, off);
+}
+
+static void draw_speed(float speed, uint16_t color)
+{
+  float safe_speed = fmaxf(0.0f, speed);
+  draw_large_value((unsigned)lroundf(safe_speed), color);
+}
+
+static void draw_trip_distance(float distance_m, uint16_t color)
+{
+  float display_distance = fmaxf(0.0f, distance_m);
+  if (display_distance >= 1000.0f)
+  {
+    display_distance /= 1000.0f;
+  }
+  draw_large_value((unsigned)lroundf(display_distance), color);
+}
+
+static void draw_distance_text_at(int x, int y, float distance_m, int scale, uint16_t color)
+{
+  unsigned distance = (unsigned)lroundf(fmaxf(0.0f, distance_m));
+  char text[24];
+  if (distance_m < 1000.0f)
+  {
+    snprintf(text, sizeof(text), "%u M", distance);
+  }
+  else if (distance_m < 100000.0f)
+  {
+    snprintf(text, sizeof(text), "%.2f KM", distance_m / 1000.0f);
+  }
+  else
+  {
+    snprintf(text, sizeof(text), "%.1f KM", distance_m / 1000.0f);
+  }
+  draw_text(x, y, text, scale, color);
 }
 
 static void draw_battery(int pct, bool charging)
@@ -235,8 +268,7 @@ static void draw_static_frame(void)
 {
   lcd_clear(LCD_COLOR_BLACK);
   fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
-  fill_rect(0, 176, LCD_W, 1, LCD_COLOR_DARKGREY);
-  draw_text_centered(160, "KM/H", 2, LCD_COLOR_WHITE);
+  fill_rect(0, 182, LCD_W, 1, LCD_COLOR_DARKGREY);
 }
 
 esp_err_t lcd_init(void)
@@ -414,41 +446,50 @@ void lcd_render(const lcd_view_t *v)
     draw_battery(v->battery_pct, v->charging);
   }
 
-  if (full || v->average_mode != s_prev.average_mode)
-  {
-    fill_rect(0, 31, LCD_W, 15, LCD_COLOR_BLACK);
-    draw_text_centered(32, v->average_mode ? "AVG SPEED" : "SPEED", 2, LCD_COLOR_CYAN);
-  }
-
   int current = (int)lroundf(v->speed_kmh);
   int previous = s_have_prev ? (int)lroundf(s_prev.speed_kmh) : -1;
-  if (full || current != previous || v->average_mode != s_prev.average_mode)
+  unsigned dist_current = (unsigned)lroundf(v->distance_m);
+  unsigned dist_previous = s_have_prev ? (unsigned)lroundf(s_prev.distance_m) : ~0U;
+  bool units_changed = s_have_prev && ((v->distance_m < 1000.0f) != (s_prev.distance_m < 1000.0f));
+
+  if (full || v->trip_mode != s_prev.trip_mode || v->average_mode != s_prev.average_mode ||
+      (v->trip_mode && (dist_current != dist_previous || units_changed)))
+  {
+    fill_rect(0, 31, LCD_W, 150, LCD_COLOR_BLACK);
+    if (v->trip_mode)
+    {
+      draw_text_centered(32, "TRIP", 2, LCD_COLOR_YELLOW);
+      draw_trip_distance(v->distance_m, LCD_COLOR_YELLOW);
+    }
+    else
+    {
+      draw_text_centered(32, v->average_mode ? "AVG SPEED" : "SPEED", 2, LCD_COLOR_CYAN);
+    }
+  }
+
+  if (!v->trip_mode && (full || current != previous || v->trip_mode != s_prev.trip_mode ||
+                        v->average_mode != s_prev.average_mode))
   {
     draw_speed(v->speed_kmh, v->average_mode ? LCD_COLOR_CYAN : LCD_COLOR_WHITE);
   }
 
-  unsigned dist_current = (unsigned)lroundf(v->distance_m);
-  unsigned dist_previous = s_have_prev ? (unsigned)lroundf(s_prev.distance_m) : ~0U;
-  bool units_changed = s_have_prev && ((v->distance_m < 1000.0f) != (s_prev.distance_m < 1000.0f));
-  if (full || dist_current != dist_previous || v->total_mode != s_prev.total_mode || units_changed)
+  if (!v->trip_mode && (full || dist_current != dist_previous || v->total_mode != s_prev.total_mode || units_changed ||
+                        v->trip_mode != s_prev.trip_mode))
   {
-    fill_rect(0, 178, LCD_W, 62, LCD_COLOR_BLACK);
-    draw_text_centered(181, v->total_mode ? "TOTAL" : "TRIP", 2, LCD_COLOR_YELLOW);
-
-    char distance[24];
-    if (v->distance_m < 1000.0f)
-    {
-      snprintf(distance, sizeof(distance), "%u M", dist_current);
-    }
-    else if (v->distance_m < 100000.0f)
-    {
-      snprintf(distance, sizeof(distance), "%.2f KM", v->distance_m / 1000.0f);
-    }
-    else
-    {
-      snprintf(distance, sizeof(distance), "%.1f KM", v->distance_m / 1000.0f);
-    }
-    draw_text_centered(199, distance, 4, LCD_COLOR_YELLOW);
+    fill_rect(0, 184, LCD_W, 47, LCD_COLOR_BLACK);
+    draw_text(5, 191, "TRIP", 2, LCD_COLOR_YELLOW);
+    draw_distance_text_at(86, 190, v->distance_m, 3, LCD_COLOR_YELLOW);
+  }
+  else if (v->trip_mode && (full || v->trip_mode != s_prev.trip_mode ||
+                            current != previous || v->average_mode != s_prev.average_mode))
+  {
+    fill_rect(0, 184, LCD_W, 47, LCD_COLOR_BLACK);
+    const char *speed_label = v->average_mode ? "AVG SPEED" : "SPEED";
+    int speed_x = v->average_mode ? 5 + text_width(speed_label, 2) + 10 : 86;
+    draw_text(5, 191, speed_label, 2, LCD_COLOR_CYAN);
+    char speed[16];
+    snprintf(speed, sizeof(speed), "%u KM/H", current < 0 ? 0U : (unsigned)current);
+    draw_text(speed_x, 190, speed, 3, LCD_COLOR_WHITE);
   }
 
   if (full || v->storage_available != s_prev.storage_available ||
@@ -457,8 +498,11 @@ void lcd_render(const lcd_view_t *v)
     fill_rect(0, 232, LCD_W, 8, LCD_COLOR_BLACK);
     if (v->storage_available)
     {
-      fill_rect(5, 234, 220, 4, LCD_COLOR_DARKGREY);
-      fill_rect(5, 234, 220 * v->storage_free_percent / 100, 4, LCD_COLOR_GREEN);
+      uint16_t bar_width = 220;
+      uint16_t free_width = (uint16_t)(bar_width * v->storage_free_percent / 100U);
+      uint16_t used_width = bar_width - free_width;
+      fill_rect(5, 234, used_width, 4, LCD_COLOR_BLACK);
+      fill_rect(5 + used_width, 234, free_width, 4, LCD_COLOR_GREEN);
       char storage[12];
       snprintf(storage, sizeof(storage), "SD %u%%", v->storage_free_percent);
       draw_text(232, 232, storage, 1, LCD_COLOR_WHITE);

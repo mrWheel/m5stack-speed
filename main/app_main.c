@@ -21,6 +21,7 @@ static const char *TAG = "m5speed";
 
 static bool g_show_average = false;
 static bool g_show_total = false;
+static bool g_trip_mode = false;
 static bool g_display_on = true;
 static bool g_display_forced_off = false;
 static bool g_system_menu = false;
@@ -218,7 +219,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       }
       else
       {
-        g_show_total = !g_show_total;
+        g_trip_mode = true;
       }
       break;
 
@@ -237,6 +238,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
     case BOARD_BUTTON_C:
       if (!long_press)
       {
+        g_trip_mode = false;
         g_show_average = !g_show_average;
       }
       break;
@@ -371,6 +373,7 @@ void app_main(void)
         .average_mode = g_show_average,
         .distance_m = g_show_total ? speedo.total_distance_m : speedo.trip_distance_m,
         .total_mode = g_show_total,
+        .trip_mode = g_trip_mode,
         .gps_fix = speedo.gps_fix,
         .satellites = speedo.satellites,
         .battery_pct = battery_pct,

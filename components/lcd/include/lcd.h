@@ -19,6 +19,7 @@ typedef struct
   bool average_mode;
   float distance_m;
   bool total_mode;
+  bool trip_mode;
   bool gps_fix;
   uint8_t satellites;
   int battery_pct;

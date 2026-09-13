@@ -147,8 +147,9 @@ The implementation must use the project's actual SD-card hardware and ESP-IDF su
 
 - Initialize NVS, board, LCD, GPS, and speedometer services.
 - Handle button events.
-- Select current speed versus trip average.
-- Select TRIP versus TOTAL distance.
+- Select current speed versus trip average in SPEED mode and in the lower part of TRIP mode.
+- Select TRIP mode versus SPEED mode for the main display.
+- Provide the current trip distance in the lower part of SPEED mode.
 - Manage display backlight timeout.
 - Persist TOTAL distance through NVS.
 - Refresh the LCD at the existing cadence.
@@ -189,11 +190,11 @@ Formatting must use the ESP-IDF SD-card FAT formatter. The current trip file mus
 
 The current controls are source-defined:
 
-- Short Button A toggles the displayed distance between TRIP and TOTAL.
+- Short Button A activates TRIP mode.
 - Long Button A resets the active trip and creates the next `trip-nnn.kml` export file.
 - Short Button B toggles the display backlight on or off when the system menu is closed.
 - Long Button B opens or closes the system menu.
-- Short Button C toggles SPEED and AVG SPEED when the system menu is closed.
+- Short Button C activates SPEED mode and toggles between SPEED and AVG SPEED.
 - Pressing a button while the display is off wakes it.
 
 ### System Menu
@@ -216,19 +217,19 @@ After a short Button B execution, the display is cleared and shows an Action scr
 
 Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
-In TRIP mode:
+#### In TRIP mode:
 
-- Show the trip distance as the large central value.
-- Show the active trip indicator and trip information in the lower display area.
+- Show the trip distance as the large central value using the same large seven-segment digit style as the speed value.
+- Show `SPEED` or `AVG SPEED` at the left of the lower display area, followed by the current or average speed value.
 - Keep the SD-card free-space indicator in the lower display area.
 
-In SPEED mode:
+#### In SPEED mode:
 
-- Show current speed or average speed as the large central value.
-- Show the selected distance value in the lower display area.
+- Show current speed or average speed as the large central value using large seven-segment digits.
+- Show `TRIP` at the left of the lower display area, followed by the trip distance value.
 - Keep the SD-card free-space indicator in the lower display area.
 
-The labels `SPEED` and `AVG SPEED` must be rendered vertically beside the final digit of the large speed value. They must remain readable and must not be rendered as mirrored text.
+The main-mode labels `TRIP`, `SPEED`, and `AVG SPEED` are rendered horizontally. In the lower display area, the label must be placed to the left of its value. The `AVG SPEED` label must not overlap the speed value; the value must move to the right when the wider label is shown.
 
 The display also shows:
 
@@ -237,7 +238,9 @@ The display also shows:
 - Battery level.
 - Charging state.
 
-The lower display area must include a storage indicator bar showing the remaining usable SD-card space. The bar must update from actual mounted-card FatFs capacity and free-space values, not from a hard-coded estimate. Handle an absent, unmounted, or unreadable card with a clear red error state without crashing the application. SD-card error text must be rendered in red consistently.
+The lower display area must include a storage indicator bar showing the remaining usable SD-card space. Used space must be black and free space must be green. The bar must update from actual mounted-card FatFs capacity and free-space values, not from a hard-coded estimate. Handle an absent, unmounted, or unreadable card with a clear red error state without crashing the application. SD-card error text must be rendered in red consistently.
+
+The main display layout uses a 320x240 screen. The separator below the middle section is rendered below the large seven-segment digits, and the large digits are positioned low enough that the `TRIP`, `SPEED`, and `AVG SPEED` headings remain readable without overlap.
 
 The backlight timeout depends on battery level and is disabled while charging. Preserve the existing timeout behavior in `app_main.c`.
 
