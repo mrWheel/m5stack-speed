@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,8 +45,9 @@ static const char *menu_option_name(uint8_t selection)
     case 0: return "New Trip file and reset Trip";
     case 1: return "Show Used & Free on SD";
     case 2: return "Enter WiFi Menu";
-    case 3: return "Format SDcard";
-    case 4: return "Exit";
+    case 3: return "Reset Tracker";
+    case 4: return "Format SDcard";
+    case 5: return "Exit";
     default: return "Unknown";
   }
 }
@@ -207,7 +209,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       case BOARD_BUTTON_B:
         if (!long_press)
         {
-              if (g_menu_selection == 4)
+              if (g_menu_selection == 5)
           {
             g_system_menu = false;
             g_wifi_menu = false;
@@ -234,7 +236,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
         }
         break;
       case BOARD_BUTTON_C:
-        if (!long_press && g_menu_selection < 4)
+        if (!long_press && g_menu_selection < 5)
         {
           ++g_menu_selection;
           log_menu_cursor(button);
@@ -300,6 +302,15 @@ void app_main(void)
   ESP_ERROR_CHECK(board_init());
   ESP_ERROR_CHECK(lcd_init());
 
+  gps_config_t gps_cfg = {
+    .uart_num = UART_NUM_2,
+    .rx_gpio = 16,
+    .tx_gpio = 17,
+    .baud_rate = 115200,
+    .request_10hz = true,
+  };
+  ESP_ERROR_CHECK(gps_init(&gps_cfg));
+
   //-- Set to 1 to show the color-mapping diagnostic screen instead of the normal UI.
 #define LCD_RUN_COLOR_TEST 0
 #if LCD_RUN_COLOR_TEST
@@ -325,15 +336,6 @@ void app_main(void)
 
   lcd_clear(LCD_COLOR_BLACK);
   lcd_set_backlight(true);
-
-  gps_config_t gps_cfg = {
-    .uart_num = UART_NUM_2,
-    .rx_gpio = 16,
-    .tx_gpio = 17,
-    .baud_rate = 115200,
-    .request_10hz = true,
-  };
-  ESP_ERROR_CHECK(gps_init(&gps_cfg));
 
   speedometer_t speedo;
   float stored_total_m = load_total_distance_m();
@@ -377,12 +379,21 @@ void app_main(void)
         g_wifi_menu = true;
         g_system_menu = false;
         webserver_start();
+        if (sdcard_remove_small_trip_files() != ESP_OK)
+        {
+          ESP_LOGE(TAG, "Unable to remove small trip files");
+        }
         g_menu_action_active = false;
         g_menu_action_pending = false;
         lcd_force_redraw();
         ESP_LOGI("board", "WiFi Menu => [Active]");
       }
       else if (g_menu_action_selection == 3)
+      {
+        ESP_LOGI("board", "Button B (MIDDLE) => [Resetting Tracker]");
+        esp_restart();
+      }
+      else if (g_menu_action_selection == 4)
       {
         format_sdcard();
         g_menu_action_active = false;

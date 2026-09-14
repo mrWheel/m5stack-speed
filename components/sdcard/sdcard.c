@@ -1,9 +1,10 @@
 #include "sdcard.h"
 
 #include <math.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
+#include <sys/stat.h>
 
 #include "driver/gpio.h"
 #include "driver/sdspi_host.h"
@@ -28,38 +29,22 @@ static bool s_has_last_coord;
 static double s_last_lat;
 static double s_last_lon;
 static uint16_t s_current_trip_number;
+static bool s_waiting_for_gps_time;
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-//-- Create a date-time-based trip filename in the form trip-YYMMDD-HH:mm.kml.
+//-- Create a date-time-based trip filename in the form trip-EEYYMMDD-HHmm.kml.
 static void build_trip_filename(char *buffer, size_t buffer_size, const gps_data_t *gps)
 {
-  if (gps && gps->date_valid)
-  {
-    snprintf(buffer, buffer_size,
-             SD_MOUNT_POINT "/trip-%02u%02u%02u-%02u:%02u.kml",
-             (unsigned)(gps->year % 100),
-             (unsigned)gps->month,
-             (unsigned)gps->day,
-             (unsigned)gps->hour,
-             (unsigned)gps->minute);
-    return;
-  }
-
-  ESP_LOGW(TAG, "GPS date/time not available yet; falling back to system time for trip filename");
-  time_t now_epoch = time(NULL);
-  struct tm now_tm;
-  localtime_r(&now_epoch, &now_tm);
-
   snprintf(buffer, buffer_size,
-           SD_MOUNT_POINT "/trip-%02d%02d%02d-%02d:%02d.kml",
-           now_tm.tm_year % 100,
-           now_tm.tm_mon + 1,
-           now_tm.tm_mday,
-           now_tm.tm_hour,
-           now_tm.tm_min);
+           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d.kml",
+           (int)gps->year,
+           (int)gps->month,
+           (int)gps->day,
+           (int)gps->hour,
+           (int)gps->minute);
 }
 
 //-- Calculate distance in meters between two lat/lon coordinates using the Haversine formula.
@@ -145,11 +130,121 @@ static esp_err_t write_text(const char *text)
   return ESP_OK;
 }
 
-static esp_err_t create_trip_file(void)
+static bool is_trip_filename(const char *name)
 {
-  gps_data_t latest_gps;
-  bool have_gps = gps_get_latest(&latest_gps);
-  build_trip_filename(s_trip_path, sizeof(s_trip_path), have_gps ? &latest_gps : NULL);
+  size_t length = strlen(name);
+  return strncmp(name, "trip-", 5) == 0 &&
+         length > 9 && strcmp(name + length - 4, ".kml") == 0;
+}
+
+esp_err_t sdcard_remove_small_trip_files(void)
+{
+  if (!s_mounted)
+  {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  bool waiting_for_new_trip = false;
+  if (s_trip_file)
+  {
+    if (fflush(s_trip_file) != 0 ||
+        write_text("</coordinates></LineString></Placemark></Document></kml>\n") != ESP_OK ||
+        fflush(s_trip_file) != 0 || fclose(s_trip_file) != 0)
+    {
+      s_trip_file = NULL;
+      return ESP_FAIL;
+    }
+    s_trip_file = NULL;
+
+    struct stat active_file_info;
+    if (stat(s_trip_path, &active_file_info) != 0)
+    {
+      ESP_LOGW(TAG, "Cannot inspect active trip file %s", s_trip_path);
+      waiting_for_new_trip = true;
+    }
+    else if (active_file_info.st_size < 1024)
+    {
+      if (remove(s_trip_path) != 0)
+      {
+        ESP_LOGW(TAG, "Cannot delete small active trip file %s", s_trip_path);
+      }
+      else
+      {
+        ESP_LOGI(TAG, "Deleted small trip file %s", s_trip_path);
+      }
+      waiting_for_new_trip = true;
+    }
+    else
+    {
+      s_trip_file = fopen(s_trip_path, "a");
+      if (!s_trip_file)
+      {
+        ESP_LOGE(TAG, "Cannot reopen active trip file %s", s_trip_path);
+        return ESP_FAIL;
+      }
+    }
+  }
+
+  DIR *directory = opendir(SD_MOUNT_POINT);
+  if (!directory)
+  {
+    ESP_LOGE(TAG, "Cannot open SD card directory for trip cleanup");
+    return ESP_FAIL;
+  }
+
+  struct dirent *entry;
+  esp_err_t result = ESP_OK;
+  while ((entry = readdir(directory)) != NULL)
+  {
+    if (!is_trip_filename(entry->d_name))
+    {
+      continue;
+    }
+
+    char path[sizeof(s_trip_path)];
+    int written = snprintf(path, sizeof(path), SD_MOUNT_POINT "/%s", entry->d_name);
+    if (written < 0 || (size_t)written >= sizeof(path))
+    {
+      result = ESP_FAIL;
+      continue;
+    }
+
+    struct stat file_info;
+    if (stat(path, &file_info) != 0)
+    {
+      ESP_LOGW(TAG, "Cannot inspect %s", path);
+      result = ESP_FAIL;
+      continue;
+    }
+    if (file_info.st_size < 1024 && remove(path) != 0)
+    {
+      ESP_LOGW(TAG, "Cannot delete small trip file %s", path);
+      result = ESP_FAIL;
+    }
+    else if (file_info.st_size < 1024)
+    {
+      ESP_LOGI(TAG, "Deleted small trip file %s", path);
+    }
+  }
+  closedir(directory);
+
+  s_waiting_for_gps_time = waiting_for_new_trip;
+  if (waiting_for_new_trip)
+  {
+    s_last_sequence = 0;
+    s_has_last_coord = false;
+  }
+  return result;
+}
+
+static esp_err_t create_trip_file(const gps_data_t *gps)
+{
+  if (!gps || !gps->date_valid)
+  {
+    s_waiting_for_gps_time = true;
+    return ESP_ERR_INVALID_STATE;
+  }
+  build_trip_filename(s_trip_path, sizeof(s_trip_path), gps);
 
   s_trip_file = fopen(s_trip_path, "w");
   if (!s_trip_file)
@@ -171,6 +266,7 @@ static esp_err_t create_trip_file(void)
   s_current_trip_number = 0;
   s_last_sequence = 0;
   s_has_last_coord = false;
+  s_waiting_for_gps_time = false;
   ESP_LOGI(TAG, "Writing %s", s_trip_path);
   return ESP_OK;
 }
@@ -198,7 +294,12 @@ esp_err_t sdcard_init(void)
   }
 
   s_mounted = true;
-  err = create_trip_file();
+  err = create_trip_file(NULL);
+  if (err == ESP_ERR_INVALID_STATE)
+  {
+    ESP_LOGI(TAG, "Waiting for GPS date/time before creating the trip file");
+    return ESP_OK;
+  }
   if (err != ESP_OK)
   {
     esp_vfs_fat_sdcard_unmount(SD_MOUNT_POINT, s_card);
@@ -222,7 +323,13 @@ esp_err_t sdcard_reset_trip(void)
     }
     s_trip_file = NULL;
   }
-  return create_trip_file();
+  esp_err_t err = create_trip_file(NULL);
+  if (err == ESP_ERR_INVALID_STATE)
+  {
+    ESP_LOGI(TAG, "Trip reset is waiting for GPS date/time");
+    return ESP_OK;
+  }
+  return err;
 }
 
 esp_err_t sdcard_format(void)
@@ -250,14 +357,41 @@ esp_err_t sdcard_format(void)
   }
 
   s_last_sequence = 0;
-  return create_trip_file();
+  esp_err_t create_err = create_trip_file(NULL);
+  if (create_err == ESP_ERR_INVALID_STATE)
+  {
+    ESP_LOGI(TAG, "SD format complete; waiting for GPS date/time before creating the trip file");
+    return ESP_OK;
+  }
+  return create_err;
 }
 
 esp_err_t sdcard_append_fix(const gps_data_t *gps)
 {
-  if (!s_mounted || !s_trip_file || !gps || !gps->fix_valid || gps->sequence == s_last_sequence)
+  if (!s_mounted || !gps)
   {
     return ESP_ERR_INVALID_STATE;
+  }
+
+  if (s_waiting_for_gps_time)
+  {
+    if (!gps->date_valid)
+    {
+      return ESP_OK;
+    }
+    if (create_trip_file(gps) != ESP_OK)
+    {
+      return ESP_FAIL;
+    }
+  }
+
+  if (!s_trip_file)
+  {
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (!gps->fix_valid || gps->sequence == s_last_sequence)
+  {
+    return ESP_OK;
   }
   if (gps->sequence == 0) return ESP_ERR_INVALID_ARG;
 

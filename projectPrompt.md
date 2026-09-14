@@ -157,7 +157,7 @@ All valid GPS coordinates must be written to the SD card for the active trip.
 Each trip must use a new Google Maps-compatible KML file when the trip is reset. File names must use this exact form:
 
 ```text
-trip-EEYYMMDD-HH:mm.kml
+trip-EEYYMMDD-HHmm.kml
 ```
 
 - The numeric identifier `EEYY` is the Centery+Year (2025, 2026 etc.).
@@ -166,11 +166,15 @@ trip-EEYYMMDD-HH:mm.kml
 - The numeric identifier `HH` is the current Hour (01 .. 24).
 - The numeric identifier `mm` is the current Minute (00 ..59).
 
+The date/time must be collected from the GPS.
+
 If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
 KML must contain valid GPS coordinate data in the format expected by Google Maps or Google My Maps. Preserve coordinate order as longitude, latitude, altitude where altitude is available. Write only valid GPS fixes and handle file-open, write, sync, close, and card errors explicitly.
 
 Trip reset must close the current export file before creating the next file. The new file must be initialized with valid KML structure before coordinates are appended, and it must be finalized correctly when the trip ends or the application shuts down where the platform allows it.
+
+If the closed trip-file has less then 20 entries, delete it before opening an new trip-file.
 
 The implementation must use the project's actual SD-card hardware and ESP-IDF support. Do not invent SD-card pins, mount points, host settings, or APIs. Add the required component dependencies explicitly and keep SD-card ownership in a dedicated component unless the existing architecture provides a better local owner.
 
@@ -248,16 +252,27 @@ While the system menu is open, the normal application functions of all buttons a
 - Short Button B executes the function under the cursor.
 - Long Button B closes the system menu.
 
-The menu options are:
+The menu options, in cursor order, are:
 
 1. `New Trip File`: resets the active trip and creates a new KML file named with the current date-time in the `trip-YYMMDD-HHmm.kml` format.
-2. `Show Used/Free`: shows the actual used and free SD-card space in kB on the Action screen.
-3. Enter `[WiFi Menu]`
-4. Reset Tracker (esp32.restart)
-5. `Format SD`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
+2. `Show Used and Free`: shows the actual used and free SD-card space in kB on the Action screen.
+3. `WiFi Menu`: enters `[WiFi Menu]`.
+4. `Reset Tracker`: restarts the device (`esp_restart()`).
+5. `Format SDcard`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
 6. `Exit`: closes the system menu.
 
-After a short Button B execution, the display is cleared and shows an Action screen. Reset and format actions show `EXECUTING` and the selected operation. The `Show Used/Free` Action screen shows SD-card information instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SD` action returns automatically to the system menu.
+### System Menu And WiFi Menu Appearance
+
+The `[System Menu]` and `[WiFi Menu]` share the same header and layout style:
+
+- The heading is drawn top-left at font scale 2 in cyan (`SYSTEM MENU` / `WiFi MENU`).
+- A dark-grey 1px horizontal separator line is drawn directly below the heading, spanning the full screen width.
+- Menu item text does not use letter-key prefixes; each item is drawn as plain title-cased text (`New Trip File`, `Show Used and Free`, `WiFi Menu`, `Reset Tracker`, `Format SDcard`, `Exit`) at font scale 2.
+- The item under the cursor is drawn in purple; unselected items are drawn in yellow.
+- General on-screen UI text uses mixed/title case, not all-capitals, except for short fixed-width status labels on the main display (`GPS`, `NO GPS`, `SAT:nn`, `TRIP`, `SPEED`, `AVG SPEED`, `SD ERR`) which remain upper-case.
+- The bitmap glyph renderer in `components/lcd/lcd.c` has distinct lowercase letter shapes (with true descenders for `g`, `j`, `p`, `q`, `y`) separate from the upper-case shapes, so mixed-case text renders differently from all-caps text.
+
+After a short Button B execution, the display is cleared and shows an Action screen. Reset, WiFi-menu-entry, reset-tracker, and format actions show `Executing` and the selected operation. The `Show Used and Free` Action screen shows SD-card information (`Sd card` heading, `Used:<n> kb` / `Free:<n> kb`, or `Sd unavailable` in red) instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SDcard` action returns automatically to the system menu.
 
 Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
@@ -292,16 +307,14 @@ TOTAL distance is stored in NVS under the existing namespace and key. Preserve t
 
 ### WiFi Menu
 
-The top part of the screen shows "WiFi Menu".
+The top part of the screen shows "WiFi MENU", styled the same as the `[System Menu]` heading (see above).
 
-The [WiFi Menu] must always show a clear state/status message describing what it is doing. The text "EXECUTING WIFI MENU" is not valid and must not be used. Use explicit status names such as:
+The [WiFi Menu] must always show a clear state/status message describing what it is doing. The text "EXECUTING WIFI MENU" is not valid and must not be used. The currently implemented status texts on the LCD are:
 
-- `CONNECTING TO AP`
-- `CAPTIVE PORTAL ACTIVE`
-- `CONNECTED TO AP`
-- `BROWSE TO <hostName>.local`
-- `CLIENT ACCESS <IP-address>`
-- `WIFI MENU CLOSED`
+- `Connecting to ap` while attempting to join the known access point.
+- `Captive portal` / `Active` when the captive portal fallback is running.
+- `Connected to:` with the SSID and IP address, plus `Webserver:` / `Active` once the webserver is up.
+- `Long MidKey: Close` as the persistent bottom-of-screen close hint.
 
 WiFi and the webserver are only active while the [WiFi Menu] is open. In the normal application display or in the [System Menu], the webserver must be stopped and WiFi must be off to minimize power usage. The [WiFi Menu] must not close itself automatically because that would drop the WiFi connection. It remains active until a LONG-press on Button B is detected.
 

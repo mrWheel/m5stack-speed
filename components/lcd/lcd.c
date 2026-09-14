@@ -126,6 +126,22 @@ static const uint8_t *glyph(char c)
     {17,17,17,21,21,21,10}, {17,17,10,4,10,17,17},
     {17,17,10,4,4,4,4}, {31,1,2,4,8,16,31}
   };
+  //-- Small x-height shapes with true descenders, distinct from the capital letters above.
+  static const uint8_t lowerLetters[26][7] = {
+    {0,0,14,1,15,17,15},  {16,16,30,17,17,17,30},
+    {0,0,15,16,16,16,15}, {1,1,15,17,17,17,15},
+    {0,0,14,17,31,16,15}, {6,9,8,28,8,8,8},
+    {0,0,15,17,15,1,30},  {16,16,22,25,17,17,17},
+    {4,0,12,4,4,4,14},    {2,0,6,2,2,18,12},
+    {16,16,18,20,24,20,18}, {12,4,4,4,4,4,14},
+    {0,0,26,21,21,21,21}, {0,0,22,25,17,17,17},
+    {0,0,14,17,17,17,14}, {0,0,30,17,17,30,16},
+    {0,0,15,17,17,15,1},  {0,0,22,25,16,16,16},
+    {0,0,15,16,14,1,30},  {4,14,4,4,4,5,2},
+    {0,0,17,17,17,19,13}, {0,0,17,17,17,10,4},
+    {0,0,17,17,21,21,10}, {0,0,17,10,4,10,17},
+    {0,0,17,17,15,1,30},  {0,0,31,2,4,8,31}
+  };
   static const uint8_t dot[7] = {0,0,0,0,0,12,12};
   static const uint8_t slash[7] = {1,2,2,4,8,8,16};
   static const uint8_t percent[7] = {17,2,4,8,16,0,17};
@@ -135,7 +151,7 @@ static const uint8_t *glyph(char c)
 
   if (c >= '0' && c <= '9') return digits[c - '0'];
   if (c >= 'A' && c <= 'Z') return letters[c - 'A'];
-  if (c >= 'a' && c <= 'z') return letters[c - 'a'];
+  if (c >= 'a' && c <= 'z') return lowerLetters[c - 'a'];
   if (c == '.') return dot;
   if (c == '/') return slash;
   if (c == '%') return percent;
@@ -393,39 +409,40 @@ void lcd_render(const lcd_view_t *v)
         v->storage_free_bytes != s_prev.storage_free_bytes ||
         v->trip_number != s_prev.trip_number)
     {
-      const char *action = "UNKNOWN";
+      const char *action = "Unknown";
       switch (v->action_selection)
       {
-        case 0: action = "RESET TRIP"; break;
-        case 1: action = "USED FREE"; break;
-        case 2: action = "WIFI MENU"; break;
-        case 3: action = "FORMAT SDCARD"; break;
+        case 0: action = "Reset Trip"; break;
+        case 1: action = "Used and Free"; break;
+        case 2: action = "Wifi menu"; break;
+        case 3: action = "Reset Tracker"; break;
+        case 4: action = "Format SDcard"; break;
         default: break;
       }
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
       if (v->action_selection == 1)
       {
-        draw_text_centered(72, "SD CARD", 3, LCD_COLOR_CYAN);
+        draw_text_centered(72, "Sd card", 3, LCD_COLOR_CYAN);
         if (v->storage_available)
         {
           uint64_t total_kb = v->storage_total_bytes / 1024;
           uint64_t free_kb = v->storage_free_bytes / 1024;
           char storage[48];
-          snprintf(storage, sizeof(storage), "USED:%llu KB", total_kb - free_kb);
+          snprintf(storage, sizeof(storage), "Used:%llu kb", total_kb - free_kb);
           draw_text_centered(120, storage, 2, LCD_COLOR_WHITE);
-          snprintf(storage, sizeof(storage), "FREE:%llu KB", free_kb);
+          snprintf(storage, sizeof(storage), "Free:%llu kb", free_kb);
           draw_text_centered(154, storage, 2, LCD_COLOR_GREEN);
         }
         else
         {
-          draw_text_centered(132, "SD UNAVAILABLE", 2, LCD_COLOR_RED);
+          draw_text_centered(132, "Sd unavailable", 2, LCD_COLOR_RED);
         }
       }
       else
       {
         if (v->action_selection == 0)
         {
-          draw_text_centered(75, "EXECUTING", 3, LCD_COLOR_CYAN);
+          draw_text_centered(75, "Executing", 3, LCD_COLOR_CYAN);
           draw_text_centered(115, action, 3, LCD_COLOR_YELLOW);
           char trip_str[32];
           snprintf(trip_str, sizeof(trip_str), "New File [%03u]", (unsigned)v->trip_number);
@@ -433,7 +450,7 @@ void lcd_render(const lcd_view_t *v)
         }
         else
         {
-          draw_text_centered(92, "EXECUTING", 3, LCD_COLOR_CYAN);
+          draw_text_centered(92, "Executing", 3, LCD_COLOR_CYAN);
           draw_text_centered(130, action, 3, LCD_COLOR_YELLOW);
         }
       }
@@ -448,16 +465,17 @@ void lcd_render(const lcd_view_t *v)
     if (full || s_prev.wifi_status != v->wifi_status || s_prev.system_menu)
     {
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
-      draw_text(7, 7, "WIFI MENU", 3, LCD_COLOR_CYAN);
+      draw_text(7, 7, "WiFi MENU", 2, LCD_COLOR_CYAN);
+      fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
       if (v->wifi_status == LCD_WIFI_CONNECTING)
       {
-        draw_text_centered(88, "CONNECTING TO AP", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(88, "Connecting to ap", 2, LCD_COLOR_YELLOW);
       }
       else if (v->wifi_status == LCD_WIFI_CONNECTED)
       {
         char ssid[40];
         snprintf(ssid, sizeof(ssid), "\"%s\"", v->wifi_ssid);
-        draw_text(7, 65, "Connected To:", 2, LCD_COLOR_WHITE);
+        draw_text(7, 65, "Connected to:", 2, LCD_COLOR_WHITE);
         draw_text(7, 99, ssid, 2, LCD_COLOR_GREEN);
         draw_text(7, 133, v->wifi_ip_address, 2, LCD_COLOR_GREEN);
         draw_text(7, 167, "Webserver:", 2, LCD_COLOR_WHITE);
@@ -465,10 +483,10 @@ void lcd_render(const lcd_view_t *v)
       }
       else
       {
-        draw_text_centered(88, "CAPTIVE PORTAL", 2, LCD_COLOR_YELLOW);
-        draw_text_centered(126, "ACTIVE", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(88, "Captive portal", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(126, "Active", 2, LCD_COLOR_YELLOW);
       }
-      draw_text(7, 211, "Long B: Close", 2, LCD_COLOR_WHITE);
+      draw_text(7, 211, "Long MidKey: Close", 2, LCD_COLOR_WHITE);
     }
     s_prev = *v;
     s_have_prev = true;
@@ -489,23 +507,25 @@ void lcd_render(const lcd_view_t *v)
       draw_text(7, 7, "SYSTEM MENU", 2, LCD_COLOR_CYAN);
       if (v->wifi_status == LCD_WIFI_CONNECTED)
       {
-        draw_text(LCD_W - text_width("WIFI", 2) - 7, 7, "WIFI", 2, LCD_COLOR_GREEN);
+        draw_text(LCD_W - text_width("Wifi", 2) - 7, 7, "Wifi", 2, LCD_COLOR_GREEN);
       }
       else if (v->wifi_status == LCD_WIFI_AP_MODE)
       {
-        draw_text(LCD_W - text_width("AP-MODE", 2) - 7, 7, "AP-MODE", 2, LCD_COLOR_YELLOW);
+        draw_text(LCD_W - text_width("Ap-mode", 2) - 7, 7, "Ap-mode", 2, LCD_COLOR_YELLOW);
       }
       fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
       uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t wifi_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t format_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t exit_color = v->menu_selection == 4 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      draw_text(18, 42, "A NEW TRIP RESET", 2, reset_color);
-      draw_text(18, 71, "B SHOW USED FREE", 2, storage_color);
-      draw_text(18, 100, "C WIFI MENU", 2, wifi_color);
-      draw_text(18, 129, "D FORMAT SDCARD", 2, format_color);
-      draw_text(18, 158, "Z EXIT", 2, exit_color);
+      uint16_t reset_tracker_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t format_color = v->menu_selection == 4 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t exit_color = v->menu_selection == 5 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      draw_text(18, 42, "New Trip File", 2, reset_color);
+      draw_text(18, 71, "Show Used and Free", 2, storage_color);
+      draw_text(18, 100, "WiFi Menu", 2, wifi_color);
+      draw_text(18, 129, "Reset Tracker", 2, reset_tracker_color);
+      draw_text(18, 158, "Format SDcard", 2, format_color);
+      draw_text(18, 187, "Exit", 2, exit_color);
 
     }
     s_prev = *v;

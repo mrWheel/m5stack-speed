@@ -20,6 +20,7 @@ typedef struct
 esp_err_t sdcard_init(void);
 esp_err_t sdcard_reset_trip(void);
 esp_err_t sdcard_format(void);
+esp_err_t sdcard_remove_small_trip_files(void);
 esp_err_t sdcard_append_fix(const gps_data_t *gps);
 void sdcard_get_status(sdcard_status_t *status);
 uint16_t sdcard_get_trip_number(void);

@@ -87,18 +87,22 @@ static void publish_rmc(char *line)
   if (fields[1][0])
   {
     char time_str[7] = {0};
+    unsigned long time_value;
     memcpy(time_str, fields[1], 6);
-    hour = (uint8_t)strtoul(time_str, NULL, 10) / 10000;
-    minute = (uint8_t)strtoul(time_str + 2, NULL, 10) / 100;
+    time_value = strtoul(time_str, NULL, 10);
+    hour = (uint8_t)(time_value / 10000);
+    minute = (uint8_t)((time_value / 100) % 100);
   }
 
   if (fields[9][0])
   {
     char date_str[7] = {0};
+    unsigned long date_value;
     memcpy(date_str, fields[9], 6);
-    day = (uint8_t)strtoul(date_str, NULL, 10) / 10000;
-    month = (uint8_t)strtoul(date_str + 2, NULL, 10) / 100;
-    year = (uint16_t)(2000 + (strtoul(date_str + 4, NULL, 10) % 100));
+    date_value = strtoul(date_str, NULL, 10);
+    day = (uint8_t)(date_value / 10000);
+    month = (uint8_t)((date_value / 100) % 100);
+    year = (uint16_t)(2000 + (date_value % 100));
     date_valid = day > 0 && day <= 31 && month > 0 && month <= 12 && year >= 2000;
   }
 
