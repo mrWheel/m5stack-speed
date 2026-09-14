@@ -67,6 +67,7 @@ Keep comments concise and useful. Do not add comments that merely restate obviou
 - Do not invent ESP-IDF APIs, configuration options, or component names.
 - Validate changes with an ESP-IDF build.
 - Never flash or upload firmware automatically. The user performs flashing manually.
+- idf.py is located in `$HOME/.espressif/tools/activate_idf_v6.0.2.sh`
 
 ## Hardware Pinout
 
@@ -133,7 +134,7 @@ The board component uses:
 - I2C SCL: GPIO22
 - IP5306 address: `0x75`
 
-Buttons are active low. Button events are debounced and long presses are recognized by the board task.
+Buttons are active low. Button events are debounced and long presses are recognized by the board task. A long press must execute immediately once the long-press threshold is reached; it must not wait for the button to be released. Short presses remain valid after the debounce threshold and are only generated on release.
 
 ### GPS
 
@@ -156,10 +157,16 @@ All valid GPS coordinates must be written to the SD card for the active trip.
 Each trip must use a new Google Maps-compatible KML file when the trip is reset. File names must use this exact form:
 
 ```text
-trip-nnn.kml
+trip-EEYYMMDD-HH:mm.kml
 ```
 
-The numeric identifier `nnn` must be zero-padded and range from `000` through `999`. Select the next available identifier without overwriting an existing trip file. If all identifiers are occupied, report the storage error and do not silently overwrite a file.
+- The numeric identifier `EEYY` is the Centery+Year (2025, 2026 etc.).
+- The numeric identifier `MM` is the Month (01 .. 12)
+- The numeric identifier `DD` is the current Day (01 .. 31).
+- The numeric identifier `HH` is the current Hour (01 .. 24).
+- The numeric identifier `mm` is the current Minute (00 ..59).
+
+If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
 KML must contain valid GPS coordinate data in the format expected by Google Maps or Google My Maps. Preserve coordinate order as longitude, latitude, altitude where altitude is available. Write only valid GPS fixes and handle file-open, write, sync, close, and card errors explicitly.
 
@@ -219,13 +226,20 @@ Formatting must use the ESP-IDF SD-card FAT formatter. The current trip file mus
 The current controls are source-defined:
 
 - Short Button A activates TRIP mode.
-- Long Button A resets the active trip and creates the next `trip-nnn.kml` export file.
+- Long Button A resets the active trip and creates the next `trip-YYMMDD-HHmm.kml` export file using the current date-time stamp.
 - Short Button B toggles the display backlight on or off when the system menu is closed.
 - Long Button B opens or closes the system menu.
 - Short Button C activates SPEED mode and toggles between SPEED and AVG SPEED.
 - Pressing a button while the display is off wakes it.
 
+Every button press/release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
+
+
 ### System Menu
+
+Opening the [System Menu] must not start WiFi or the webserver. WiFi and the webserver are only started from the [WiFi Menu].
+
+When the [WiFi Menu] is entered, that menu stays active until a LONG-press on Button B is detected. It does not close on a short-button action or on key release.
 
 While the system menu is open, the normal application functions of all buttons are disabled:
 
@@ -236,12 +250,14 @@ While the system menu is open, the normal application functions of all buttons a
 
 The menu options are:
 
-1. `Reset Trip`: resets the active trip and creates a new KML file.
-2. `Used Free`: shows the actual used and free SD-card space in kB on the Action screen.
-3. `Format SD`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
-4. `Exit`: closes the system menu.
+1. `New Trip File`: resets the active trip and creates a new KML file named with the current date-time in the `trip-YYMMDD-HHmm.kml` format.
+2. `Show Used/Free`: shows the actual used and free SD-card space in kB on the Action screen.
+3. Enter `[WiFi Menu]`
+4. Reset Tracker (esp32.restart)
+5. `Format SD`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
+6. `Exit`: closes the system menu.
 
-After a short Button B execution, the display is cleared and shows an Action screen. Reset and format actions show `EXECUTING` and the selected operation. The `Used Free` Action screen shows SD-card information instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SD` action returns automatically to the system menu.
+After a short Button B execution, the display is cleared and shows an Action screen. Reset and format actions show `EXECUTING` and the selected operation. The `Show Used/Free` Action screen shows SD-card information instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SD` action returns automatically to the system menu.
 
 Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
@@ -273,6 +289,39 @@ The main display layout uses a 320x240 screen. The separator below the middle se
 The backlight timeout depends on battery level and is disabled while charging. Preserve the existing timeout behavior in `app_main.c`.
 
 TOTAL distance is stored in NVS under the existing namespace and key. Preserve the current checkpoint strategy and units.
+
+### WiFi Menu
+
+The top part of the screen shows "WiFi Menu".
+
+The [WiFi Menu] must always show a clear state/status message describing what it is doing. The text "EXECUTING WIFI MENU" is not valid and must not be used. Use explicit status names such as:
+
+- `CONNECTING TO AP`
+- `CAPTIVE PORTAL ACTIVE`
+- `CONNECTED TO AP`
+- `BROWSE TO <hostName>.local`
+- `CLIENT ACCESS <IP-address>`
+- `WIFI MENU CLOSED`
+
+WiFi and the webserver are only active while the [WiFi Menu] is open. In the normal application display or in the [System Menu], the webserver must be stopped and WiFi must be off to minimize power usage. The [WiFi Menu] must not close itself automatically because that would drop the WiFi connection. It remains active until a LONG-press on Button B is detected.
+
+While the [WiFi Menu] is open, the normal application functions of all buttons are disabled except for:
+
+- Long Button B closes the [WiFi Menu] and returns to [System Menu].
+
+Entering the menu activates:
+
+1 - Print "Connecting to AP", Start WiFi with known credentials. If after trying it is not possible to connect to the AP print "`Starting Captive Portal`", "`Select WiFi network <hostName> and browse to 192.168.1.4`", Start the Captive Portal.
+
+2 - If connecting to the AP succeeds print "`Connected to <SSID> with <IP-ADDRESS>`"
+
+3 - Start webserver (GUI) and print "`Browse to <hostName>.local`"
+
+4 - If a client connect to the webserver (GUI) print "Accessed by `<IP-address client>`"
+
+The [WiFi Menu] remains active until a LONG-press on Button B is detected; a short press does not close it. Long-press actions must be executed immediately once the threshold is reached, not after key release.
+
+Trip filenames must use the GPS date/time when a valid GPS date is available, because that is the source of truth for the trip export. If a valid GPS date is not available yet, log a warning and continue using the best available fallback timestamp without aborting the trip file creation.
 
 ## Validation
 

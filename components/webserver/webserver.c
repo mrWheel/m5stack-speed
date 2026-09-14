@@ -4,6 +4,7 @@
 
 #include "esp_event.h"
 #include "esp_littlefs.h"
+#include "esp_netif.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_wifi.h"
@@ -14,8 +15,8 @@
 
 #include "webserver_internal.h"
 
-//-- mDNS hostname, reachable as "M5STACKSPEED.local" while WiFi is active.
-#define WEBSERVER_HOSTNAME "M5StackSpeed"
+//-- mDNS hostname, reachable as "tripTracker.local" while WiFi is active.
+#define WEBSERVER_HOSTNAME "tripTracker"
 
 static const char *TAG = "webserver";
 static httpd_handle_t s_server;
@@ -264,9 +265,13 @@ esp_err_t webserver_stop(void)
 
 webserver_wifi_status_t webserver_get_wifi_status(void)
 {
-  if (!s_network_active || s_connecting)
+  if (!s_network_active)
   {
     return WEBSERVER_WIFI_OFF;
+  }
+  if (s_connecting)
+  {
+    return WEBSERVER_WIFI_CONNECTING;
   }
   if (s_sta_connected)
   {
@@ -277,4 +282,36 @@ webserver_wifi_status_t webserver_get_wifi_status(void)
     return WEBSERVER_WIFI_AP_MODE;
   }
   return WEBSERVER_WIFI_OFF;
+}
+
+void webserver_get_wifi_display_info(char *ssid, size_t ssid_size,
+                                     char *ip_address, size_t ip_address_size)
+{
+  if (ssid && ssid_size > 0)
+  {
+    ssid[0] = '\0';
+  }
+  if (ip_address && ip_address_size > 0)
+  {
+    ip_address[0] = '\0';
+  }
+
+  if (ssid && ssid_size > 0)
+  {
+    wifi_config_t config = {0};
+    if (esp_wifi_get_config(WIFI_IF_STA, &config) == ESP_OK)
+    {
+      snprintf(ssid, ssid_size, "%s", (char *)config.sta.ssid);
+    }
+  }
+
+  if (ip_address && ip_address_size > 0)
+  {
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip_info;
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK)
+    {
+      snprintf(ip_address, ip_address_size, IPSTR, IP2STR(&ip_info.ip));
+    }
+  }
 }

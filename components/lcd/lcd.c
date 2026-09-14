@@ -398,7 +398,7 @@ void lcd_render(const lcd_view_t *v)
       {
         case 0: action = "RESET TRIP"; break;
         case 1: action = "USED FREE"; break;
-        case 2: action = "STOP SYSTEM"; break;
+        case 2: action = "WIFI MENU"; break;
         case 3: action = "FORMAT SDCARD"; break;
         default: break;
       }
@@ -443,6 +443,38 @@ void lcd_render(const lcd_view_t *v)
     return;
   }
 
+  if (v->wifi_status != LCD_WIFI_NONE && !v->system_menu)
+  {
+    if (full || s_prev.wifi_status != v->wifi_status || s_prev.system_menu)
+    {
+      fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
+      draw_text(7, 7, "WIFI MENU", 3, LCD_COLOR_CYAN);
+      if (v->wifi_status == LCD_WIFI_CONNECTING)
+      {
+        draw_text_centered(88, "CONNECTING TO AP", 2, LCD_COLOR_YELLOW);
+      }
+      else if (v->wifi_status == LCD_WIFI_CONNECTED)
+      {
+        char ssid[40];
+        snprintf(ssid, sizeof(ssid), "\"%s\"", v->wifi_ssid);
+        draw_text(7, 65, "Connected To:", 2, LCD_COLOR_WHITE);
+        draw_text(7, 99, ssid, 2, LCD_COLOR_GREEN);
+        draw_text(7, 133, v->wifi_ip_address, 2, LCD_COLOR_GREEN);
+        draw_text(7, 167, "Webserver:", 2, LCD_COLOR_WHITE);
+        draw_text(7 + text_width("Webserver:", 2) + 5, 167, "Active", 2, LCD_COLOR_GREEN);
+      }
+      else
+      {
+        draw_text_centered(88, "CAPTIVE PORTAL", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(126, "ACTIVE", 2, LCD_COLOR_YELLOW);
+      }
+      draw_text(7, 211, "Long B: Close", 2, LCD_COLOR_WHITE);
+    }
+    s_prev = *v;
+    s_have_prev = true;
+    return;
+  }
+
   if (v->system_menu)
   {
     if (full || !s_prev.system_menu ||
@@ -466,12 +498,12 @@ void lcd_render(const lcd_view_t *v)
       fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
       uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t stop_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+      uint16_t wifi_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t format_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       uint16_t exit_color = v->menu_selection == 4 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
       draw_text(18, 42, "A NEW TRIP RESET", 2, reset_color);
       draw_text(18, 71, "B SHOW USED FREE", 2, storage_color);
-      draw_text(18, 100, "C STOP SYSTEM", 2, stop_color);
+      draw_text(18, 100, "C WIFI MENU", 2, wifi_color);
       draw_text(18, 129, "D FORMAT SDCARD", 2, format_color);
       draw_text(18, 158, "Z EXIT", 2, exit_color);
 

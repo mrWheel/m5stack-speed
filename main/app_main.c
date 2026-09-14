@@ -27,6 +27,7 @@ static bool g_trip_mode = false;
 static bool g_display_on = true;
 static bool g_display_forced_off = false;
 static bool g_system_menu = false;
+static bool g_wifi_menu = false;
 static uint8_t g_menu_selection = 0;
 static bool g_menu_action_active = false;
 static bool g_menu_action_pending = false;
@@ -42,7 +43,7 @@ static const char *menu_option_name(uint8_t selection)
   {
     case 0: return "New Trip file and reset Trip";
     case 1: return "Show Used & Free on SD";
-    case 2: return "Stop system";
+    case 2: return "Enter WiFi Menu";
     case 3: return "Format SDcard";
     case 4: return "Exit";
     default: return "Unknown";
@@ -135,18 +136,21 @@ static void format_sdcard(void)
   sdcard_get_status(&g_storage_status);
 }
 
-static void stop_system(const speedometer_t *speedo)
-{
-  ESP_LOGI(TAG, "Stopping system and entering deep sleep");
-  webserver_stop();
-  save_total_distance_m(speedo->total_distance_m);
-  sdcard_finish();
-  lcd_set_backlight(false);
-  esp_deep_sleep_start();
-}
-
 static void handle_button(board_button_t button, bool long_press, speedometer_t *speedo)
 {
+  if (g_wifi_menu)
+  {
+    if (button == BOARD_BUTTON_B && long_press)
+    {
+      g_wifi_menu = false;
+      g_system_menu = true;
+      webserver_stop();
+      lcd_force_redraw();
+      ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
+    }
+    return;
+  }
+
   if (g_menu_action_active)
   {
     if (button == BOARD_BUTTON_B && !long_press)
@@ -163,11 +167,12 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
   if (button == BOARD_BUTTON_B && long_press)
   {
     g_system_menu = !g_system_menu;
+    g_wifi_menu = false;
     g_menu_selection = 0;
     if (g_system_menu)
     {
+      webserver_stop();
       turn_display_on();
-      webserver_start();
       ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
     }
     else
@@ -202,13 +207,21 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t 
       case BOARD_BUTTON_B:
         if (!long_press)
         {
-          if (g_menu_selection == 4)
+              if (g_menu_selection == 4)
           {
             g_system_menu = false;
+            g_wifi_menu = false;
             webserver_stop();
             lcd_force_redraw();
             ESP_LOGI("board", "System Menu => [Closed]");
             break;
+          }
+          if (g_menu_selection == 2)
+          {
+            g_wifi_menu = true;
+            g_system_menu = false;
+            webserver_start();
+            ESP_LOGI("board", "WiFi Menu => [Active]");
           }
           ESP_LOGI("board", "Button B (MIDDLE) => [%s]",
                    menu_option_name(g_menu_selection));
@@ -309,12 +322,6 @@ void app_main(void)
   {
     ESP_LOGE(TAG, "Webserver unavailable: %s", esp_err_to_name(webserver_err));
   }
-  else
-  {
-    //-- Verify stored WiFi credentials once at boot, then turn WiFi back off.
-    //-- WiFi and the file-manager server are only active while the System Menu is open.
-    webserver_check_wifi_credentials();
-  }
 
   lcd_clear(LCD_COLOR_BLACK);
   lcd_set_backlight(true);
@@ -367,7 +374,13 @@ void app_main(void)
       }
       else if (g_menu_action_selection == 2)
       {
-        stop_system(&speedo);
+        g_wifi_menu = true;
+        g_system_menu = false;
+        webserver_start();
+        g_menu_action_active = false;
+        g_menu_action_pending = false;
+        lcd_force_redraw();
+        ESP_LOGI("board", "WiFi Menu => [Active]");
       }
       else if (g_menu_action_selection == 3)
       {
@@ -375,9 +388,16 @@ void app_main(void)
         g_menu_action_active = false;
         g_menu_action_pending = false;
         g_system_menu = true;
+        g_wifi_menu = false;
+        webserver_stop();
         lcd_force_redraw();
         ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
       }
+    }
+
+    if (!g_wifi_menu && webserver_get_wifi_status() != WEBSERVER_WIFI_OFF)
+    {
+      webserver_stop();
     }
 
     gps_data_t gps;
@@ -419,13 +439,21 @@ void app_main(void)
       last_ui_us = now_us;
 
       lcd_wifi_status_t wifi_status = LCD_WIFI_NONE;
-      if (g_system_menu)
+      char wifi_ssid[33] = "";
+      char wifi_ip_address[16] = "";
+      if (g_system_menu || g_wifi_menu)
       {
         switch (webserver_get_wifi_status())
         {
+          case WEBSERVER_WIFI_CONNECTING: wifi_status = LCD_WIFI_CONNECTING; break;
           case WEBSERVER_WIFI_STA_CONNECTED: wifi_status = LCD_WIFI_CONNECTED; break;
           case WEBSERVER_WIFI_AP_MODE:       wifi_status = LCD_WIFI_AP_MODE;   break;
-          default:                           wifi_status = LCD_WIFI_NONE;      break;
+          default:                           wifi_status = g_wifi_menu ? LCD_WIFI_CONNECTING : LCD_WIFI_NONE; break;
+        }
+        if (g_wifi_menu && wifi_status == LCD_WIFI_CONNECTED)
+        {
+          webserver_get_wifi_display_info(wifi_ssid, sizeof(wifi_ssid),
+                                          wifi_ip_address, sizeof(wifi_ip_address));
         }
       }
 
@@ -449,7 +477,11 @@ void app_main(void)
         .action_selection = g_menu_action_selection,
         .trip_number = sdcard_get_trip_number(),
         .wifi_status = wifi_status,
+        .wifi_ssid = "",
+        .wifi_ip_address = "",
       };
+      snprintf(view.wifi_ssid, sizeof(view.wifi_ssid), "%s", wifi_ssid);
+      snprintf(view.wifi_ip_address, sizeof(view.wifi_ip_address), "%s", wifi_ip_address);
       lcd_render(&view);
     }
 

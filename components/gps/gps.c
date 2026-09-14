@@ -77,12 +77,43 @@ static void publish_rmc(char *line)
   double latitude = parse_coordinate(fields[3], fields[4]);
   double longitude = parse_coordinate(fields[5], fields[6]);
 
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  uint8_t day = 0;
+  uint8_t month = 0;
+  uint16_t year = 0;
+  bool date_valid = false;
+
+  if (fields[1][0])
+  {
+    char time_str[7] = {0};
+    memcpy(time_str, fields[1], 6);
+    hour = (uint8_t)strtoul(time_str, NULL, 10) / 10000;
+    minute = (uint8_t)strtoul(time_str + 2, NULL, 10) / 100;
+  }
+
+  if (fields[9][0])
+  {
+    char date_str[7] = {0};
+    memcpy(date_str, fields[9], 6);
+    day = (uint8_t)strtoul(date_str, NULL, 10) / 10000;
+    month = (uint8_t)strtoul(date_str + 2, NULL, 10) / 100;
+    year = (uint16_t)(2000 + (strtoul(date_str + 4, NULL, 10) % 100));
+    date_valid = day > 0 && day <= 31 && month > 0 && month <= 12 && year >= 2000;
+  }
+
   xSemaphoreTake(s_lock, portMAX_DELAY);
   s_latest.fix_valid = valid;
   s_latest.speed_kmh = valid ? knots * 1.852f : 0.0f;
   s_latest.course_deg = course;
   s_latest.latitude_deg = latitude;
   s_latest.longitude_deg = longitude;
+  s_latest.day = day;
+  s_latest.month = month;
+  s_latest.year = year;
+  s_latest.hour = hour;
+  s_latest.minute = minute;
+  s_latest.date_valid = date_valid;
   s_latest.sample_time_us = esp_timer_get_time();
   s_latest.sequence++;
   xSemaphoreGive(s_lock);

@@ -29,13 +29,14 @@ typedef struct
   gpio_num_t gpio;
   board_button_t button;
   bool down;
+  bool long_press_sent;
   int64_t down_us;
 } button_state_t;
 
 static button_state_t s_buttons[] = {
-  { BUTTON_A_GPIO, BOARD_BUTTON_A, false, 0 },
-  { BUTTON_B_GPIO, BOARD_BUTTON_B, false, 0 },
-  { BUTTON_C_GPIO, BOARD_BUTTON_C, false, 0 },
+  { BUTTON_A_GPIO, BOARD_BUTTON_A, false, false, 0 },
+  { BUTTON_B_GPIO, BOARD_BUTTON_B, false, false, 0 },
+  { BUTTON_C_GPIO, BOARD_BUTTON_C, false, false, 0 },
 };
 
 static esp_err_t ip5306_read(uint8_t reg, uint8_t *value)
@@ -77,24 +78,41 @@ static void button_task(void *arg)
         {
           b->down = true;
           b->down_us = now;
+          b->long_press_sent = false;
+        }
+      }
+      else if (pressed && b->down)
+      {
+        int64_t held = now - b->down_us;
+        if (!b->long_press_sent && held >= long_press_us)
+        {
+          board_button_event_t event = {
+            .button = b->button,
+            .long_press = true,
+          };
+          ESP_LOGI(TAG, "Button %s: LONG press threshold reached (%lld ms)",
+                   button_name(event.button),
+                   held / 1000);
+          xQueueSend(s_button_queue, &event, 0);
+          b->long_press_sent = true;
         }
       }
       else if (!pressed && b->down)
       {
         int64_t held = now - b->down_us;
-        if (held >= debounce_us)
+        if (held >= debounce_us && !b->long_press_sent)
         {
           board_button_event_t event = {
             .button = b->button,
-            .long_press = held >= long_press_us,
+            .long_press = false,
           };
-          ESP_LOGI(TAG, "Button %s: %s press (%lld ms)",
+          ESP_LOGI(TAG, "Button %s: SHORT press (%lld ms)",
                    button_name(event.button),
-                   event.long_press ? "LONG" : "SHORT",
                    held / 1000);
           xQueueSend(s_button_queue, &event, 0);
         }
         b->down = false;
+        b->long_press_sent = false;
       }
     }
     vTaskDelay(pdMS_TO_TICKS(10));

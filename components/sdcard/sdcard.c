@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "driver/gpio.h"
 #include "driver/sdspi_host.h"
@@ -22,7 +23,7 @@ static sdmmc_card_t *s_card;
 static FILE *s_trip_file;
 static bool s_mounted;
 static uint32_t s_last_sequence;
-static char s_trip_path[32];
+static char s_trip_path[64];
 static bool s_has_last_coord;
 static double s_last_lat;
 static double s_last_lon;
@@ -32,29 +33,33 @@ static uint16_t s_current_trip_number;
 #define M_PI 3.14159265358979323846
 #endif
 
-//-- Load the next trip file sequence number from NVS.
-static uint16_t load_trip_number(void)
+//-- Create a date-time-based trip filename in the form trip-YYMMDD-HH:mm.kml.
+static void build_trip_filename(char *buffer, size_t buffer_size, const gps_data_t *gps)
 {
-  nvs_handle_t nvs;
-  uint16_t num = 0;
-  if (nvs_open("speed", NVS_READONLY, &nvs) == ESP_OK)
+  if (gps && gps->date_valid)
   {
-    nvs_get_u16(nvs, "trip_num", &num);
-    nvs_close(nvs);
+    snprintf(buffer, buffer_size,
+             SD_MOUNT_POINT "/trip-%02u%02u%02u-%02u:%02u.kml",
+             (unsigned)(gps->year % 100),
+             (unsigned)gps->month,
+             (unsigned)gps->day,
+             (unsigned)gps->hour,
+             (unsigned)gps->minute);
+    return;
   }
-  return num % 1000;
-}
 
-//-- Save the trip file sequence number to NVS.
-static void save_trip_number(uint16_t num)
-{
-  nvs_handle_t nvs;
-  if (nvs_open("speed", NVS_READWRITE, &nvs) == ESP_OK)
-  {
-    nvs_set_u16(nvs, "trip_num", num % 1000);
-    nvs_commit(nvs);
-    nvs_close(nvs);
-  }
+  ESP_LOGW(TAG, "GPS date/time not available yet; falling back to system time for trip filename");
+  time_t now_epoch = time(NULL);
+  struct tm now_tm;
+  localtime_r(&now_epoch, &now_tm);
+
+  snprintf(buffer, buffer_size,
+           SD_MOUNT_POINT "/trip-%02d%02d%02d-%02d:%02d.kml",
+           now_tm.tm_year % 100,
+           now_tm.tm_mon + 1,
+           now_tm.tm_mday,
+           now_tm.tm_hour,
+           now_tm.tm_min);
 }
 
 //-- Calculate distance in meters between two lat/lon coordinates using the Haversine formula.
@@ -142,8 +147,9 @@ static esp_err_t write_text(const char *text)
 
 static esp_err_t create_trip_file(void)
 {
-  uint16_t trip_id = load_trip_number();
-  snprintf(s_trip_path, sizeof(s_trip_path), SD_MOUNT_POINT "/trip-%03u.kml", (unsigned)trip_id);
+  gps_data_t latest_gps;
+  bool have_gps = gps_get_latest(&latest_gps);
+  build_trip_filename(s_trip_path, sizeof(s_trip_path), have_gps ? &latest_gps : NULL);
 
   s_trip_file = fopen(s_trip_path, "w");
   if (!s_trip_file)
@@ -162,10 +168,7 @@ static esp_err_t create_trip_file(void)
     return ESP_FAIL;
   }
 
-  //-- Save the next sequence number in NVS (wraps from 999 to 000).
-  save_trip_number((trip_id + 1) % 1000);
-
-  s_current_trip_number = trip_id;
+  s_current_trip_number = 0;
   s_last_sequence = 0;
   s_has_last_coord = false;
   ESP_LOGI(TAG, "Writing %s", s_trip_path);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "esp_err.h"
 
 //-- Mount point for the LittleFS partition holding the GUI assets.
@@ -10,6 +12,7 @@
 typedef enum
 {
   WEBSERVER_WIFI_OFF,
+  WEBSERVER_WIFI_CONNECTING,
   WEBSERVER_WIFI_STA_CONNECTED,
   WEBSERVER_WIFI_AP_MODE,
 } webserver_wifi_status_t;
@@ -33,3 +36,7 @@ esp_err_t webserver_stop(void);
 
 //-- Current WiFi state; only meaningful while webserver_start() is active.
 webserver_wifi_status_t webserver_get_wifi_status(void);
+
+//-- Returns the connected SSID and assigned IPv4 address for display.
+void webserver_get_wifi_display_info(char *ssid, size_t ssid_size,
+                                     char *ip_address, size_t ip_address_size);

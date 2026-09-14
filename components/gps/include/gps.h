@@ -24,6 +24,12 @@ typedef struct
   double longitude_deg;
   float altitude_m;
   uint8_t satellites;
+  uint8_t day;
+  uint8_t month;
+  uint16_t year;
+  uint8_t hour;
+  uint8_t minute;
+  bool date_valid;
   int64_t sample_time_us;
   uint32_t sequence;
 } gps_data_t;

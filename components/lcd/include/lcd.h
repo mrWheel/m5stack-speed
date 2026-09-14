@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "esp_err.h"
 
 //-- Standard RGB565 values. The panel's Display Inversion is now disabled in
@@ -20,6 +21,7 @@
 typedef enum
 {
   LCD_WIFI_NONE,
+  LCD_WIFI_CONNECTING,
   LCD_WIFI_CONNECTED,
   LCD_WIFI_AP_MODE,
 } lcd_wifi_status_t;
@@ -46,6 +48,8 @@ typedef struct
   uint8_t action_selection;
   uint16_t trip_number;
   lcd_wifi_status_t wifi_status;
+  char wifi_ssid[33];
+  char wifi_ip_address[16];
 } lcd_view_t;
 
 esp_err_t lcd_init(void);
