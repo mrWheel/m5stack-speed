@@ -1,6 +1,6 @@
-# M5Stack Speed
+# tripTracker
 
-Native ESP-IDF GPS speedometer for:
+Native ESP-IDF GPS trip- and speedometer for:
 
 - M5Stack Core Basic v2.7 (ESP32, 320x240 ILI9342C)
 - M5Stack Module GPS v2.0 (AT6668)
@@ -108,7 +108,7 @@ Use your actual serial device for the final command.
 ## Important design choices
 
 - Wi-Fi and Bluetooth are not enabled, reducing unnecessary power use.
-- No SD card is needed.
+- SD card is needed for tracking
 - GPS continues running with the LCD backlight off.
 - The large speed number uses a custom seven-segment renderer, so it remains readable at a glance and requires no font files.
 - The project currently targets the exact Core Basic v2.7 pinout.
