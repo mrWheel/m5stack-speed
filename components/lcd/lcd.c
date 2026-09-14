@@ -214,35 +214,93 @@ static void draw_segment_digit(int x, int y, int digit, uint16_t color, uint16_t
   fill_rect(x+t, y+h/2-t/2, w-2*t, t, (m&0x40)?color:off);
 }
 
-static void draw_large_value(unsigned value, uint16_t color)
+//-- decimal_after: -1 = no decimal point, 0 = point after digit0, 1 = point after digit1.
+//-- Outer digits are nudged outward and the dots re-centered in the widened
+//-- gaps so each dot sits loose from both of its neighboring digits.
+static void draw_large_digits(int digit0, int digit1, int digit2, int decimal_after, uint16_t color)
 {
-  if (value > 999) value = 999;
-
-  int hundreds = value / 100;
-  int tens = (value / 10) % 10;
-  int ones = value % 10;
-  int x0 = 47;
+  const int digit0_x = 35;
+  const int digit1_x = 126;
+  const int digit2_x = 217;
+  const int dot0_x = 109;
+  const int dot1_x = 200;
+  const int y0 = 52;
+  const int h = 116;
+  const int dot_size = 11;
   uint16_t off = 0x1082;
 
-  draw_segment_digit(x0, 52, value >= 100 ? hundreds : -1, color, off);
-  draw_segment_digit(x0 + 79, 52, value >= 10 ? tens : -1, color, off);
-  draw_segment_digit(x0 + 158, 52, ones, color, off);
+  draw_segment_digit(digit0_x, y0, digit0, color, off);
+  draw_segment_digit(digit1_x, y0, digit1, color, off);
+  draw_segment_digit(digit2_x, y0, digit2, color, off);
+
+  int dot_y = y0 + h - dot_size;
+  fill_rect(dot0_x, dot_y, dot_size, dot_size, decimal_after == 0 ? color : off);
+  fill_rect(dot1_x, dot_y, dot_size, dot_size, decimal_after == 1 ? color : off);
+}
+
+//-- Splits a value into 3 seven-segment digits, sliding the decimal point so the
+//-- displayed number keeps the highest precision the 3 digits can carry:
+//-- <10 => x.xx, 10..99.9 => xx.x, >=100 => xxx (whole number, capped at 999).
+static void compute_tiered_digits(float value, int *d0, int *d1, int *d2, int *decimal_after)
+{
+  float safe = fmaxf(0.0f, value);
+  if (safe < 10.0f)
+  {
+    unsigned scaled = (unsigned)lroundf(safe * 100.0f);
+    if (scaled > 999) scaled = 999;
+    *d0 = scaled / 100;
+    *d1 = (scaled / 10) % 10;
+    *d2 = scaled % 10;
+    *decimal_after = 0;
+  }
+  else if (safe < 100.0f)
+  {
+    unsigned scaled = (unsigned)lroundf(safe * 10.0f);
+    if (scaled > 999) scaled = 999;
+    *d0 = scaled / 100;
+    *d1 = (scaled / 10) % 10;
+    *d2 = scaled % 10;
+    *decimal_after = 1;
+  }
+  else
+  {
+    unsigned whole = (unsigned)lroundf(safe);
+    if (whole > 999) whole = 999;
+    *d0 = whole / 100;
+    *d1 = (whole / 10) % 10;
+    *d2 = whole % 10;
+    *decimal_after = -1;
+  }
 }
 
 static void draw_speed(float speed, uint16_t color)
 {
-  float safe_speed = fmaxf(0.0f, speed);
-  draw_large_value((unsigned)lroundf(safe_speed), color);
+  int d0, d1, d2, decimal_after;
+  compute_tiered_digits(speed, &d0, &d1, &d2, &decimal_after);
+  draw_large_digits(d0, d1, d2, decimal_after, color);
 }
 
+//-- Below 1 km, distance is already at full meter precision so it is shown as a
+//-- plain whole number (with leading zero blanking); at or above 1 km the value
+//-- switches to km and reuses the same sliding-decimal tiering as draw_speed().
 static void draw_trip_distance(float distance_m, uint16_t color)
 {
-  float display_distance = fmaxf(0.0f, distance_m);
-  if (display_distance >= 1000.0f)
+  float safe = fmaxf(0.0f, distance_m);
+  if (safe < 1000.0f)
   {
-    display_distance /= 1000.0f;
+    unsigned whole = (unsigned)lroundf(safe);
+    if (whole > 999) whole = 999;
+    int d0 = whole >= 100 ? (int)(whole / 100) : -1;
+    int d1 = whole >= 10 ? (int)((whole / 10) % 10) : -1;
+    int d2 = (int)(whole % 10);
+    draw_large_digits(d0, d1, d2, -1, color);
   }
-  draw_large_value((unsigned)lroundf(display_distance), color);
+  else
+  {
+    int d0, d1, d2, decimal_after;
+    compute_tiered_digits(safe / 1000.0f, &d0, &d1, &d2, &decimal_after);
+    draw_large_digits(d0, d1, d2, decimal_after, color);
+  }
 }
 
 static void draw_distance_text_at(int x, int y, float distance_m, int scale, uint16_t color)

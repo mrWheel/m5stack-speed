@@ -4,5 +4,11 @@
     "board/esp32-wrover-kit-3.3v.cfg"
   ],
   "idf.currentSetup": "/Users/willema/.espressif/v6.0.2/esp-idf",
-  "idf.port": "/dev/tty.usbserial-5A6C0468171"
+  "idf.port": "/dev/tty.usbserial-5A6C0468171",
+  "chat.tools.terminal.autoApprove": {
+    "/^source \"\\$HOME/\\.espressif/tools/activate_idf_v6\\.0\\.2\\.sh\" && idf\\.py build 2>&1 \\| tail -60$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  }
 }

@@ -35,7 +35,6 @@ static bool g_menu_action_pending = false;
 static uint8_t g_menu_action_selection = 0;
 static int64_t g_menu_action_requested_us = 0;
 static int64_t g_last_user_activity_us = 0;
-static uint32_t g_last_total_save_m = 0;
 static sdcard_status_t g_storage_status;
 
 static const char *menu_option_name(uint8_t selection)
@@ -57,34 +56,6 @@ static void log_menu_cursor(board_button_t button)
   ESP_LOGI("board", "Button %s => [%s]",
            button == BOARD_BUTTON_A ? "A (LEFT)" : "C (RIGHT)",
            menu_option_name(g_menu_selection));
-}
-
-static float load_total_distance_m(void)
-{
-  nvs_handle_t nvs;
-  uint32_t cm = 0;
-  if (nvs_open("speed", NVS_READONLY, &nvs) == ESP_OK)
-  {
-    nvs_get_u32(nvs, "total_cm", &cm);
-    nvs_close(nvs);
-  }
-  return (float)cm / 100.0f;
-}
-
-static void save_total_distance_m(float meters)
-{
-  nvs_handle_t nvs;
-  if (nvs_open("speed", NVS_READWRITE, &nvs) != ESP_OK)
-  {
-    return;
-  }
-
-  uint32_t cm = (uint32_t)lroundf(fmaxf(0.0f, meters) * 100.0f);
-  if (nvs_set_u32(nvs, "total_cm", cm) == ESP_OK)
-  {
-    nvs_commit(nvs);
-  }
-  nvs_close(nvs);
 }
 
 static uint32_t timeout_for_battery(int battery_pct, bool charging)
@@ -338,9 +309,7 @@ void app_main(void)
   lcd_set_backlight(true);
 
   speedometer_t speedo;
-  float stored_total_m = load_total_distance_m();
-  speedometer_init(&speedo, stored_total_m);
-  g_last_total_save_m = (uint32_t)stored_total_m;
+  speedometer_init(&speedo, 0.0f);
 
   g_last_user_activity_us = esp_timer_get_time();
   int64_t last_ui_us = 0;
@@ -436,13 +405,6 @@ void app_main(void)
       {
         turn_display_off(false);
       }
-    }
-
-    uint32_t total_m_whole = (uint32_t)(speedo.total_distance_m);
-    if (total_m_whole >= g_last_total_save_m + 1000)
-    {
-      save_total_distance_m(speedo.total_distance_m);
-      g_last_total_save_m = total_m_whole;
     }
 
     if (g_display_on && (now_us - last_ui_us) >= 50000LL)
