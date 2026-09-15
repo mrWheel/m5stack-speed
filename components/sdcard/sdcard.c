@@ -828,6 +828,29 @@ uint16_t sdcard_get_trip_number(void)
   return s_current_trip_number;
 }
 
+void sdcard_get_active_trip_datetime(char* out, size_t out_size)
+{
+  if (!out || out_size == 0)
+    return;
+  out[0] = 0;
+
+  const char* base = strrchr(s_trip_gpx_path, '/');
+  base = base ? base + 1 : s_trip_gpx_path;
+  const char* prefix = "trip-";
+  size_t prefix_len = strlen(prefix);
+  if (strncmp(base, prefix, prefix_len) != 0)
+    return;
+
+  const char* start = base + prefix_len;
+  size_t length = strlen(start);
+  if (length > 4 && strcmp(start + length - 4, ".gpx") == 0)
+    length -= 4;
+  if (length >= out_size)
+    length = out_size - 1;
+  memcpy(out, start, length);
+  out[length] = 0;
+}
+
 uint32_t sdcard_get_entry_count(void)
 {
   return s_entry_count;

@@ -67,6 +67,8 @@ typedef struct
   const lcd_trip_entry_t* trip_entries;
   size_t trip_entry_count;
   size_t list_trips_scroll;
+  const char* prog_version;
+  char trip_datetime[24];
 } lcd_view_t;
 
 esp_err_t lcd_init(void);

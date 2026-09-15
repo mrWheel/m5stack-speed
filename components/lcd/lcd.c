@@ -209,6 +209,71 @@ static void draw_text_centered(int y, const char* s, int scale, uint16_t color)
   draw_text((LCD_W - w) / 2, y, s, scale, color);
 }
 
+//-- Inserts ',' thousand separators into a non-negative integer string.
+static void format_thousands(uint64_t value, char* out, size_t out_size)
+{
+  char digits[24];
+  int digit_count = snprintf(digits, sizeof(digits), "%llu", (unsigned long long)value);
+  int groups = (digit_count - 1) / 3;
+  int out_len = digit_count + groups;
+  if ((size_t)out_len >= out_size)
+    out_len = (int)out_size - 1;
+  out[out_len] = 0;
+
+  int digit_index = digit_count - 1;
+  int out_index = out_len - 1;
+  int since_separator = 0;
+  while (digit_index >= 0 && out_index >= 0)
+  {
+    out[out_index--] = digits[digit_index--];
+    if (++since_separator == 3 && digit_index >= 0 && out_index >= 0)
+    {
+      out[out_index--] = ',';
+      since_separator = 0;
+    }
+  }
+}
+
+//-- Scales a byte count to GB (2 decimals), MB, or KB, whichever fits best,
+//-- with ',' thousand separators on the whole-number part.
+static void format_storage_bytes(uint64_t bytes, char* out, size_t out_size)
+{
+  const uint64_t kKB = 1024ULL;
+  const uint64_t kMB = 1024ULL * 1024ULL;
+  const uint64_t kGB = 1024ULL * 1024ULL * 1024ULL;
+  char whole_str[24];
+
+  if (bytes >= kGB)
+  {
+    uint64_t whole = bytes / kGB;
+    uint64_t hundredths = ((bytes % kGB) * 100ULL) / kGB;
+    format_thousands(whole, whole_str, sizeof(whole_str));
+    snprintf(out, out_size, "%s.%02llu GB", whole_str, (unsigned long long)hundredths);
+  }
+  else if (bytes >= kMB)
+  {
+    format_thousands(bytes / kMB, whole_str, sizeof(whole_str));
+    snprintf(out, out_size, "%s MB", whole_str);
+  }
+  else
+  {
+    format_thousands(bytes / kKB, whole_str, sizeof(whole_str));
+    snprintf(out, out_size, "%s KB", whole_str);
+  }
+}
+
+//-- Shared top bar for menu/action screens: left-aligned title, right-aligned
+//-- firmware version, and the dark-grey separator line beneath both.
+static void draw_header(const char* title, const char* version)
+{
+  draw_text(7, 7, title, 2, LCD_COLOR_CYAN);
+  if (version && version[0])
+  {
+    draw_text(LCD_W - text_width(version, 2) - 7, 7, version, 2, LCD_COLOR_WHITE);
+  }
+  fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
+}
+
 static const uint8_t seg_map[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
 
 static void draw_segment_digit(int x, int y, int digit, uint16_t color, uint16_t off)
@@ -527,7 +592,8 @@ void lcd_render(const lcd_view_t* v)
     if (full || !s_prev.menu_action || v->action_selection != s_prev.action_selection ||
         v->storage_available != s_prev.storage_available ||
         v->storage_total_bytes != s_prev.storage_total_bytes ||
-        v->storage_free_bytes != s_prev.storage_free_bytes || v->trip_number != s_prev.trip_number)
+        v->storage_free_bytes != s_prev.storage_free_bytes ||
+        v->trip_number != s_prev.trip_number || strcmp(v->trip_datetime, s_prev.trip_datetime) != 0)
     {
       const char* action = "Unknown";
       switch (v->action_selection)
@@ -556,34 +622,36 @@ void lcd_render(const lcd_view_t* v)
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
       if (v->action_selection == 1)
       {
-        draw_text_centered(72, "Sd card", 3, LCD_COLOR_CYAN);
+        draw_header("SD CARD INFO", v->prog_version);
         if (v->storage_available)
         {
-          uint64_t total_kb = v->storage_total_bytes / 1024;
-          uint64_t free_kb = v->storage_free_bytes / 1024;
-          char storage[48];
-          snprintf(storage, sizeof(storage), "Used:%llu kb", total_kb - free_kb);
-          draw_text_centered(120, storage, 2, LCD_COLOR_WHITE);
-          snprintf(storage, sizeof(storage), "Free:%llu kb", free_kb);
-          draw_text_centered(154, storage, 2, LCD_COLOR_GREEN);
+          uint64_t used_bytes = v->storage_total_bytes - v->storage_free_bytes;
+          char storage[32];
+          draw_text(18, 45, "Used:", 3, LCD_COLOR_RED);
+          format_storage_bytes(used_bytes, storage, sizeof(storage));
+          draw_text(34, 75, storage, 3, LCD_COLOR_WHITE);
+
+          draw_text(18, 130, "Free:", 3, LCD_COLOR_GREEN);
+          format_storage_bytes(v->storage_free_bytes, storage, sizeof(storage));
+          draw_text(34, 160, storage, 3, LCD_COLOR_WHITE);
         }
         else
         {
-          draw_text_centered(132, "Sd unavailable", 2, LCD_COLOR_RED);
+          draw_text_centered(120, "Sd unavailable", 2, LCD_COLOR_RED);
         }
       }
       else
       {
         if (v->action_selection == 0)
         {
-          draw_text_centered(75, "Executing", 3, LCD_COLOR_CYAN);
-          draw_text_centered(115, action, 3, LCD_COLOR_YELLOW);
-          char trip_str[32];
-          snprintf(trip_str, sizeof(trip_str), "New File [%03u]", (unsigned)v->trip_number);
-          draw_text_centered(155, trip_str, 2, LCD_COLOR_WHITE);
+          draw_header("NEW TRIP FILE", v->prog_version);
+          draw_text_centered(90, "New File", 3, LCD_COLOR_YELLOW);
+          draw_text_centered(140, v->trip_datetime, 2, LCD_COLOR_WHITE);
         }
         else
         {
+          draw_text(LCD_W - text_width(v->prog_version, 2) - 7, 7, v->prog_version, 2,
+                    LCD_COLOR_WHITE);
           draw_text_centered(92, "Executing", 3, LCD_COLOR_CYAN);
           draw_text_centered(130, action, 3, LCD_COLOR_YELLOW);
         }
@@ -599,8 +667,7 @@ void lcd_render(const lcd_view_t* v)
     if (full || s_prev.wifi_status != v->wifi_status || s_prev.system_menu)
     {
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
-      draw_text(7, 7, "WiFi MENU", 2, LCD_COLOR_CYAN);
-      fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
+      draw_header("WiFi MENU", v->prog_version);
       if (v->wifi_status == LCD_WIFI_CONNECTING)
       {
         draw_text_centered(88, "Connecting to ap", 2, LCD_COLOR_YELLOW);
@@ -646,6 +713,11 @@ void lcd_render(const lcd_view_t* v)
       {
         draw_text(LCD_W - text_width("Ap-mode", 2) - 7, 7, "Ap-mode", 2, LCD_COLOR_YELLOW);
       }
+      else
+      {
+        draw_text(LCD_W - text_width(v->prog_version, 2) - 7, 7, v->prog_version, 2,
+                  LCD_COLOR_WHITE);
+      }
       fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
 
       static const char* const kMenuItems[] = {
@@ -676,8 +748,7 @@ void lcd_render(const lcd_view_t* v)
         v->list_trips_scroll != s_prev.list_trips_scroll)
     {
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
-      draw_text(7, 7, "LIST TRIPS", 2, LCD_COLOR_CYAN);
-      fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
+      draw_header("List Trips", v->prog_version);
 
       const int row_height = 26;
       const int first_row_y = 38;

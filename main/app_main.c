@@ -23,7 +23,7 @@
 // — Program version string (keep manually updated with each release)
 // — NEVER CHANGE THIS const char* NAME
 // —             vvvvvvvvvvvvvv
-static const char* PROG_VERSION = "v1.2.0";
+static const char* PROG_VERSION = "v1.2.1";
 // —             ^^^^^^^^^^^^^^
 static const char* TAG = "m5speed";
 
@@ -275,6 +275,12 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
           g_system_menu = false;
           webserver_start();
           ESP_LOGI("board", "WiFi Menu => [Active]");
+          if (sdcard_remove_small_trip_files() != ESP_OK)
+          {
+            ESP_LOGE(TAG, "Unable to remove small trip files");
+          }
+          lcd_force_redraw();
+          break;
         }
         ESP_LOGI("board", "Button B (MIDDLE) => [%s]", menu_option_name(g_menu_selection));
         g_menu_action_active = true;
@@ -426,20 +432,6 @@ void app_main(void)
       {
         sdcard_get_status(&g_storage_status);
       }
-      else if (g_menu_action_selection == 2)
-      {
-        g_wifi_menu = true;
-        g_system_menu = false;
-        webserver_start();
-        if (sdcard_remove_small_trip_files() != ESP_OK)
-        {
-          ESP_LOGE(TAG, "Unable to remove small trip files");
-        }
-        g_menu_action_active = false;
-        g_menu_action_pending = false;
-        lcd_force_redraw();
-        ESP_LOGI("board", "WiFi Menu => [Active]");
-      }
       else if (g_menu_action_selection == 3)
       {
         ESP_LOGI("board", "Button B (MIDDLE) => [Resetting Tracker]");
@@ -559,9 +551,11 @@ void app_main(void)
           .trip_entries = g_trip_entries,
           .trip_entry_count = g_trip_entry_count,
           .list_trips_scroll = g_list_trips_scroll,
+          .prog_version = PROG_VERSION,
       };
       snprintf(view.wifi_ssid, sizeof(view.wifi_ssid), "%s", wifi_ssid);
       snprintf(view.wifi_ip_address, sizeof(view.wifi_ip_address), "%s", wifi_ip_address);
+      sdcard_get_active_trip_datetime(view.trip_datetime, sizeof(view.trip_datetime));
       lcd_render(&view);
     }
 

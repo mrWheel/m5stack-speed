@@ -9,6 +9,14 @@
     "/^source \"\\$HOME/\\.espressif/tools/activate_idf_v6\\.0\\.2\\.sh\" && idf\\.py build 2>&1 \\| tail -60$/": {
       "approve": true,
       "matchCommandLine": true
+    },
+    "/^source \\$HOME/\\.espressif/tools/activate_idf_v6\\.0\\.2\\.sh > /dev/null 2>&1 && cd /Users/willema/Documents/espidfProjects\\.nosync/tripTracker && idf\\.py build 2>&1 \\| tail -60$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^source \\$HOME/\\.espressif/tools/activate_idf_v6\\.0\\.2\\.sh > /dev/null 2>&1 && cd /Users/willema/Documents/espidfProjects\\.nosync/tripTracker && idf\\.py build 2>&1 \\| tail -20$/": {
+      "approve": true,
+      "matchCommandLine": true
     }
   }
 }
