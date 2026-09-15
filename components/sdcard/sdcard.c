@@ -14,6 +14,7 @@
 #include "driver/gpio.h"
 #include "driver/sdspi_host.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "ff.h"
 #include "nvs.h"
@@ -44,6 +45,8 @@ static double s_last_lat;
 static double s_last_lon;
 static float s_trip_distance_m;
 static float s_last_export_distance_m;
+static float s_last_log_course_deg;
+static int64_t s_last_log_time_us;
 static uint32_t s_entry_count;
 static uint16_t s_current_trip_number;
 static bool s_waiting_for_gps_time;
@@ -54,15 +57,118 @@ static char s_closed_gpx_path[64];
 #define M_PI 3.14159265358979323846
 #endif
 
+static bool is_european_position(double latitude_deg, double longitude_deg)
+{
+  return latitude_deg >= -90.0 && latitude_deg <= 90.0 && longitude_deg >= -180.0 &&
+         longitude_deg <= 180.0 && latitude_deg >= 35.0 && latitude_deg <= 72.0 &&
+         longitude_deg >= -25.0 && longitude_deg <= 45.0;
+}
+
+static bool is_europe_dst_active(uint16_t year, uint8_t month, uint8_t day)
+{
+  (void)year;
+  if (month < 3 || month > 10)
+    return false;
+  if (month > 3 && month < 10)
+    return true;
+  if (month == 3)
+    return day >= 25;
+  if (month == 10)
+    return day <= 25;
+  return false;
+}
+
+static int determine_timezone_offset_hours(double latitude_deg, double longitude_deg, uint16_t year,
+                                           uint8_t month, uint8_t day)
+{
+  if (is_european_position(latitude_deg, longitude_deg))
+  {
+    int base_offset_hours = 1;
+    if (longitude_deg < -10.0)
+      base_offset_hours = 0;
+    else if (longitude_deg >= 20.0)
+      base_offset_hours = 2;
+    if (is_europe_dst_active(year, month, day))
+      base_offset_hours += 1;
+    return base_offset_hours;
+  }
+
+  int fallback_offset_hours = (int)lround(longitude_deg / 15.0);
+  if (fallback_offset_hours > 14)
+    fallback_offset_hours = 14;
+  else if (fallback_offset_hours < -12)
+    fallback_offset_hours = -12;
+  return fallback_offset_hours;
+}
+
+static void gps_utc_to_local(const gps_data_t* gps, uint16_t* out_year, uint8_t* out_month,
+                             uint8_t* out_day, uint8_t* out_hour, uint8_t* out_minute,
+                             uint8_t* out_second, int* out_offset_hours)
+{
+  if (!gps || !out_year || !out_month || !out_day || !out_hour || !out_minute || !out_second ||
+      !out_offset_hours)
+  {
+    return;
+  }
+
+  *out_offset_hours = determine_timezone_offset_hours(gps->latitude_deg, gps->longitude_deg,
+                                                      gps->year, gps->month, gps->day);
+
+  setenv("TZ", "UTC", 1);
+  tzset();
+
+  struct tm utc_tm = {0};
+  utc_tm.tm_year = gps->year - 1900;
+  utc_tm.tm_mon = gps->month - 1;
+  utc_tm.tm_mday = gps->day;
+  utc_tm.tm_hour = gps->hour;
+  utc_tm.tm_min = gps->minute;
+  utc_tm.tm_sec = gps->second;
+  utc_tm.tm_isdst = 0;
+
+  time_t utc_epoch = mktime(&utc_tm);
+  if (utc_epoch == (time_t)-1)
+  {
+    *out_year = gps->year;
+    *out_month = gps->month;
+    *out_day = gps->day;
+    *out_hour = gps->hour;
+    *out_minute = gps->minute;
+    *out_second = gps->second;
+    return;
+  }
+
+  time_t local_epoch = utc_epoch + ((time_t)*out_offset_hours * 3600LL);
+  struct tm local_tm = {0};
+  gmtime_r(&local_epoch, &local_tm);
+
+  *out_year = (uint16_t)(local_tm.tm_year + 1900);
+  *out_month = (uint8_t)(local_tm.tm_mon + 1);
+  *out_day = (uint8_t)local_tm.tm_mday;
+  *out_hour = (uint8_t)local_tm.tm_hour;
+  *out_minute = (uint8_t)local_tm.tm_min;
+  *out_second = (uint8_t)local_tm.tm_sec;
+}
+
 //-- Create both date-time-based trip filenames in the form trip-EEYYMMDD-HHmmSS.ext.
 static void build_trip_filenames(const gps_data_t* gps)
 {
+  uint16_t local_year = gps->year;
+  uint8_t local_month = gps->month;
+  uint8_t local_day = gps->day;
+  uint8_t local_hour = gps->hour;
+  uint8_t local_minute = gps->minute;
+  uint8_t local_second = gps->second;
+  int offset_hours = 0;
+  gps_utc_to_local(gps, &local_year, &local_month, &local_day, &local_hour, &local_minute,
+                   &local_second, &offset_hours);
+
   snprintf(s_trip_gpx_path, sizeof(s_trip_gpx_path),
-           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.gpx", (int)gps->year, (int)gps->month,
-           (int)gps->day, (int)gps->hour, (int)gps->minute, (int)gps->second);
+           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.gpx", (int)local_year, (int)local_month,
+           (int)local_day, (int)local_hour, (int)local_minute, (int)local_second);
   snprintf(s_trip_csv_path, sizeof(s_trip_csv_path),
-           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.csv", (int)gps->year, (int)gps->month,
-           (int)gps->day, (int)gps->hour, (int)gps->minute, (int)gps->second);
+           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.csv", (int)local_year, (int)local_month,
+           (int)local_day, (int)local_hour, (int)local_minute, (int)local_second);
 }
 
 //-- Calculate distance in meters between two lat/lon coordinates using the Haversine formula.
@@ -81,6 +187,25 @@ static double calculate_distance_m(double lat1, double lon1, double lat2, double
 
   const double earth_radius_m = 6371000.0;
   return earth_radius_m * c;
+}
+
+//-- Calculate the minimum distance (m) between two logged points at a given speed.
+//-- Grows proportionally with speed so slow movement (walking, curves) is logged
+//-- densely while fast, straight-line driving uses fewer points.
+static float calculate_log_distance_m(float speed_kmh)
+{
+  float log_distance_m = fmaxf(5.0f, speed_kmh * 1.2f);
+  if (log_distance_m > 100.0f)
+    log_distance_m = 100.0f;
+  return log_distance_m;
+}
+
+//-- Smallest absolute angular difference between two course headings in degrees,
+//-- correctly wrapping around the 0/360 boundary (e.g. 355 -> 5 is 10 degrees).
+static float calculate_course_diff_deg(float course_a_deg, float course_b_deg)
+{
+  float diff = fmodf(course_a_deg - course_b_deg + 540.0f, 360.0f) - 180.0f;
+  return fabsf(diff);
 }
 
 static void clear_status(sdcard_status_t* status)
@@ -331,6 +456,8 @@ static void restore_last_trip_point(void)
       s_last_lat = latitude;
       s_last_lon = longitude;
       s_trip_distance_m = distance;
+      s_last_log_course_deg = course;
+      s_last_log_time_us = esp_timer_get_time();
       s_has_last_coord = true;
     }
   }
@@ -666,6 +793,8 @@ static esp_err_t create_trip_file(const gps_data_t* gps)
   s_has_last_coord = false;
   s_trip_distance_m = 0.0f;
   s_last_export_distance_m = 0.0f;
+  s_last_log_course_deg = 0.0f;
+  s_last_log_time_us = 0;
   s_entry_count = 0;
   s_waiting_for_gps_time = false;
   if (save_active_gpx_path() != ESP_OK)
@@ -828,15 +957,31 @@ esp_err_t sdcard_append_fix(const gps_data_t* gps, float trip_distance_m)
   if (s_has_last_coord)
   {
     float distance_since_export_m = trip_distance_m - s_last_export_distance_m;
-    float required_dist_m = 5.0f;
+    float log_distance_m = calculate_log_distance_m(gps->speed_kmh);
+    float course_change_deg = calculate_course_diff_deg(gps->course_deg, s_last_log_course_deg);
+    float elapsed_s = (float)(esp_timer_get_time() - s_last_log_time_us) / 1e6f;
 
-    if (distance_since_export_m < required_dist_m)
+    bool distance_reached = distance_since_export_m >= log_distance_m;
+    bool course_changed = course_change_deg >= 12.0f;
+    bool time_elapsed = elapsed_s >= 10.0f;
+
+    ESP_LOGD(TAG,
+             "GPS point check: speed=%.2fkm/h log-dist=%.2fm since-last=%.2fm "
+             "course-change=%.2fdeg elapsed=%.2fs",
+             gps->speed_kmh, log_distance_m, distance_since_export_m, course_change_deg, elapsed_s);
+
+    if (!distance_reached && !course_changed && !time_elapsed)
     {
       s_last_sequence = gps->sequence;
       return ESP_OK;
     }
-    ESP_LOGI(TAG, "Recording GPS point: sequence=%u trip-distance=%.2f since-last=%.2f",
-             gps->sequence, trip_distance_m, distance_since_export_m);
+
+    const char* reason = distance_reached ? "distance" : (course_changed ? "course" : "time");
+    ESP_LOGI(TAG,
+             "Recording GPS point (%s): sequence=%u trip-distance=%.2f since-last=%.2f "
+             "log-dist=%.2f course-change=%.2f elapsed=%.2fs",
+             reason, gps->sequence, trip_distance_m, distance_since_export_m, log_distance_m,
+             course_change_deg, elapsed_s);
   }
 
   if (remove_gpx_closing_tags() != ESP_OK)
@@ -855,12 +1000,23 @@ esp_err_t sdcard_append_fix(const gps_data_t* gps, float trip_distance_m)
           : 0.0;
   s_trip_distance_m += (float)segment_distance_m;
 
+  uint16_t local_year = gps->year;
+  uint8_t local_month = gps->month;
+  uint8_t local_day = gps->day;
+  uint8_t local_hour = gps->hour;
+  uint8_t local_minute = gps->minute;
+  uint8_t local_second = gps->second;
+  int local_offset_hours = 0;
+  gps_utc_to_local(gps, &local_year, &local_month, &local_day, &local_hour, &local_minute,
+                   &local_second, &local_offset_hours);
+
   char date[16];
-  char time[16];
+  char time[24];
   char gpx_point[512];
   char csv_row[256];
-  snprintf(date, sizeof(date), "%04u-%02u-%02u", gps->year, gps->month, gps->day);
-  snprintf(time, sizeof(time), "%02u:%02u:%02uZ", gps->hour, gps->minute, gps->second);
+  snprintf(date, sizeof(date), "%04u-%02u-%02u", local_year, local_month, local_day);
+  snprintf(time, sizeof(time), "%02u:%02u:%02u%+03d:00", local_hour, local_minute, local_second,
+           local_offset_hours);
   int gpx_written =
       snprintf(gpx_point, sizeof(gpx_point),
                "    <trkpt lat=\"%.7f\" "
@@ -886,6 +1042,8 @@ esp_err_t sdcard_append_fix(const gps_data_t* gps, float trip_distance_m)
   s_last_lon = gps->longitude_deg;
   s_has_last_coord = true;
   s_last_export_distance_m = trip_distance_m;
+  s_last_log_course_deg = gps->course_deg;
+  s_last_log_time_us = esp_timer_get_time();
   ++s_entry_count;
   return ESP_OK;
 }

@@ -684,7 +684,7 @@ void lcd_render(const lcd_view_t* v)
       draw_header("WiFi MENU", v->prog_version);
       if (v->wifi_status == LCD_WIFI_CONNECTING)
       {
-        draw_text_centered(88, "Connecting to ap", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(88, "Connecting to AP", 2, LCD_COLOR_YELLOW);
       }
       else if (v->wifi_status == LCD_WIFI_CONNECTED)
       {
@@ -698,8 +698,12 @@ void lcd_render(const lcd_view_t* v)
       }
       else
       {
-        draw_text_centered(88, "Captive portal", 2, LCD_COLOR_YELLOW);
-        draw_text_centered(126, "Active", 2, LCD_COLOR_YELLOW);
+        const char* hostname = "tripTracker";
+        draw_text_centered(60, "Captive portal: Active", 2, LCD_COLOR_YELLOW);
+        draw_text_centered(92, "In settings select", 2, LCD_COLOR_WHITE);
+        draw_text_centered(122, hostname, 2, LCD_COLOR_GREEN);
+        draw_text_centered(150, "Browse to 192.168.1.4", 2, LCD_COLOR_WHITE);
+        draw_text_centered(178, "to set WiFi Credentials", 2, LCD_COLOR_WHITE);
       }
       draw_text(7, 211, "Long MidKey: Close", 2, LCD_COLOR_WHITE);
     }

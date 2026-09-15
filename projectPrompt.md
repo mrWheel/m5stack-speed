@@ -171,7 +171,7 @@ trip-EEYYMMDD-HHmmSS.csv
 - The numeric identifier `mm` is the current Minute (00 ..59).
 - The numeric identifier `SS` is the current Second (00 ..59).
 
-The date/time must be collected from the GPS and converted to `Europe/Amsterdam`.
+The date/time must be collected from the GPS and converted to the local civil time implied by the current GPS position. Determine the active time zone from the GPS coordinates and local daylight-saving rules, then convert the GPS UTC/Zulu time to that local time. For the Netherlands this resolves to `Europe/Amsterdam`, but the implementation should derive the zone from position rather than hard-coding a single timezone.
 
 If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
@@ -258,6 +258,16 @@ Every button press/release is logged with the physical position, button name, `S
 Opening the [System Menu] must not start WiFi or the webserver. WiFi and the webserver are only started from the [WiFi Menu].
 
 When the [WiFi Menu] is entered, that menu stays active until a LONG-press on Button B is detected. It does not close on a short-button action or on key release.
+
+When the WiFi access point is not found and the device falls back to captive-portal mode, the WiFi screen must show the following text in a vertically spaced layout that starts high enough on the display to avoid overlapping the footer:
+
+- `Captive portal: Active`
+- `In settings select`
+- `<hostname>`
+- `Browse to 192.168.1.4`
+- `to set WiFi Credentials`
+
+The active hostname in this project is `tripTracker`. The footer text `Long MidKey: Close` must remain visible and must not overlap any of the captive-portal instructions. Use the existing display layout and font scale as the source of truth for spacing.
 
 While the system menu is open, the normal application functions of all buttons are disabled:
 
@@ -428,5 +438,5 @@ Make focused edits. Do not remove existing functionality. Do not change hardware
 
 ## Miscalanious
 
-The idf.py command is in 'source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh"'
+The `idf.py` command is in `source "$HOME/.espressif/tools/activate_idf_v6.0.2.sh"`
 
