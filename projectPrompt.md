@@ -160,8 +160,8 @@ display; it does not use an independent coordinate-distance threshold.
 Each trip must use a new GPX file and CSV file when the trip is reset. Both files use this exact base name:
 
 ```text
-trip-EEYYMMDD-HHmm.gpx
-trip-EEYYMMDD-HHmm.csv
+trip-EEYYMMDD-HHmmSS.gpx
+trip-EEYYMMDD-HHmmSS.csv
 ```
 
 - The numeric identifier `EEYY` is the Centery+Year (2025, 2026 etc.).
@@ -169,8 +169,11 @@ trip-EEYYMMDD-HHmm.csv
 - The numeric identifier `DD` is the current Day (01 .. 31).
 - The numeric identifier `HH` is the current Hour (01 .. 24).
 - The numeric identifier `mm` is the current Minute (00 ..59).
+- The numeric identifier `SS` is the current Second (00 ..59).
 
 The date/time must be collected from the GPS.
+
+Compensate for Amsterdam time (Summer or Winter)
 
 If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
@@ -178,7 +181,9 @@ GPX must contain valid track points, and CSV must contain the date, time, latitu
 
 The active GPX path is stored in NVS. On startup, the storage component resumes that exact GPX/CSV pair instead of truncating a file with the current minute's name. Existing GPX closing tags are removed before appending new positions. Trip reset must close both current export files before creating the next pair. The new files must be initialized with valid GPX/CSV structure before positions are appended, and the GPX closing tags must be written after every exported position and when the trip ends or the application shuts down where the platform allows it.
 
-If the closed trip-file has less then 20 entries, delete it before opening an new trip-file.
+The GPX file descriptor must be opened `O_RDWR`, not `O_WRONLY`. Removing the closing tags before every append reads the current tail of the file on that same descriptor to locate `</trkseg>`; a write-only descriptor fails that read with `EBADF`, silently preventing every position from being recorded. The CSV descriptor stays `O_WRONLY` since it is never read back.
+
+If the closed trip-file has less then 20 entries, delete it before opening an new trip-file. This deletion is currently disabled by the temporary `SDCARD_KEEP_SMALL_TRIP_FILES` debug switch at the top of `components/sdcard/sdcard.c`, kept at `1` while the GPX/CSV export bug is being diagnosed on hardware. Set it back to `0` to restore the 20-entry cleanup once the fix is confirmed.
 
 The implementation must use the project's actual SD-card hardware and ESP-IDF support. Do not invent SD-card pins, mount points, host settings, or APIs. Add the required component dependencies explicitly and keep SD-card ownership in a dedicated component unless the existing architecture provides a better local owner.
 

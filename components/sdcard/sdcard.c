@@ -24,6 +24,11 @@
 #define SDCARD_NVS_NAMESPACE "sdcard"
 #define SDCARD_NVS_ACTIVE_GPX "active_gpx"
 
+//-- TEMPORARY debug switch: keep trip files with fewer than 20 entries
+//-- instead of deleting them, so recorded points can be inspected while the
+//-- GPX/CSV export bug is being diagnosed. Set back to 0 once confirmed fixed.
+#define SDCARD_KEEP_SMALL_TRIP_FILES 1
+
 static const char* TAG = "sdcard";
 static sdmmc_card_t* s_card;
 static int s_trip_gpx_fd = -1;
@@ -148,8 +153,19 @@ static esp_err_t remove_gpx_closing_tags(void)
   }
 
   char* closing_tags = strstr(tail, "</trkseg>");
-  if (closing_tags &&
-      ftruncate(s_trip_gpx_fd, file_size - (off_t)read_size + (off_t)(closing_tags - tail)) != 0)
+  if (closing_tags)
+  {
+    off_t truncate_at = file_size - (off_t)read_size + (off_t)(closing_tags - tail);
+    if (ftruncate(s_trip_gpx_fd, truncate_at) != 0)
+    {
+      return ESP_FAIL;
+    }
+  }
+
+  //-- The preceding read() left the file offset at the old EOF; without
+  //-- repositioning, the next write() lands past the truncated end and
+  //-- leaves a zero-filled gap instead of appending visible content.
+  if (lseek(s_trip_gpx_fd, 0, SEEK_END) < 0)
   {
     return ESP_FAIL;
   }
@@ -323,7 +339,9 @@ static esp_err_t recover_active_trip(void)
   }
   close(file);
 
-  s_trip_gpx_fd = open(s_trip_gpx_path, O_WRONLY | O_APPEND);
+  //-- O_RDWR so remove_gpx_closing_tags() can keep reading the tail of the
+  //-- file on this same descriptor before every append, as in create_trip_file().
+  s_trip_gpx_fd = open(s_trip_gpx_path, O_RDWR | O_APPEND);
   s_trip_csv_fd = open(s_trip_csv_path, O_WRONLY | O_APPEND);
   if (s_trip_gpx_fd < 0 || s_trip_csv_fd < 0)
   {
@@ -353,7 +371,11 @@ esp_err_t sdcard_remove_small_trip_files(void)
     {
       return ESP_FAIL;
     }
-    if (s_entry_count < 20)
+    bool too_small = s_entry_count < 20;
+#if SDCARD_KEEP_SMALL_TRIP_FILES
+    too_small = false;
+#endif
+    if (too_small)
     {
       remove(s_trip_gpx_path);
       remove(s_trip_csv_path);
@@ -361,7 +383,7 @@ esp_err_t sdcard_remove_small_trip_files(void)
     }
     else
     {
-      s_trip_gpx_fd = open(s_trip_gpx_path, O_WRONLY | O_APPEND);
+      s_trip_gpx_fd = open(s_trip_gpx_path, O_RDWR | O_APPEND);
       s_trip_csv_fd = open(s_trip_csv_path, O_WRONLY | O_APPEND);
       if (s_trip_gpx_fd < 0 || s_trip_csv_fd < 0)
       {
@@ -396,12 +418,16 @@ esp_err_t sdcard_remove_small_trip_files(void)
     }
 
     bool gpx = strcmp(path + strlen(path) - 4, ".gpx") == 0;
-    if (count_trip_entries(path, gpx) < 20 && remove(path) != 0)
+    bool small_file = count_trip_entries(path, gpx) < 20;
+#if SDCARD_KEEP_SMALL_TRIP_FILES
+    small_file = false;
+#endif
+    if (small_file && remove(path) != 0)
     {
       ESP_LOGW(TAG, "Cannot delete small trip file %s", path);
       result = ESP_FAIL;
     }
-    else if (count_trip_entries(path, gpx) < 20)
+    else if (small_file)
     {
       ESP_LOGI(TAG, "Deleted small trip file %s", path);
     }
@@ -433,8 +459,11 @@ static esp_err_t create_trip_file(const gps_data_t* gps)
   }
   s_waiting_for_new_filename = false;
 
-  s_trip_gpx_fd = open(s_trip_gpx_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-  s_trip_csv_fd = open(s_trip_csv_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  //-- The GPX descriptor must stay readable: remove_gpx_closing_tags() reads the
+  //-- current tail of the file before every write to locate and strip the
+  //-- closing tags, which fails with EBADF on an O_WRONLY descriptor.
+  s_trip_gpx_fd = open(s_trip_gpx_path, O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
+  s_trip_csv_fd = open(s_trip_csv_path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
   if (s_trip_gpx_fd < 0 || s_trip_csv_fd < 0)
   {
     ESP_LOGE(TAG, "Cannot create GPX/CSV trip files");
@@ -536,7 +565,11 @@ esp_err_t sdcard_reset_trip(void)
     {
       return ESP_FAIL;
     }
-    if (s_entry_count < 20)
+    bool too_small = s_entry_count < 20;
+#if SDCARD_KEEP_SMALL_TRIP_FILES
+    too_small = false;
+#endif
+    if (too_small)
     {
       remove(s_trip_gpx_path);
       remove(s_trip_csv_path);

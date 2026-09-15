@@ -692,7 +692,7 @@ void lcd_render(const lcd_view_t* v)
     if (v->trip_mode)
     {
       draw_text_centered(32, "TRIP", 2, LCD_COLOR_YELLOW);
-      draw_trip_distance(v->distance_m, LCD_COLOR_BLUE);
+      draw_trip_distance(v->distance_m, LCD_COLOR_WHITE);
     }
     else
     {
@@ -703,7 +703,7 @@ void lcd_render(const lcd_view_t* v)
   if (!v->trip_mode && (full || current != previous || v->trip_mode != s_prev.trip_mode ||
                         v->average_mode != s_prev.average_mode))
   {
-    draw_speed(v->speed_kmh, LCD_COLOR_BLUE);
+    draw_speed(v->speed_kmh, LCD_COLOR_WHITE);
   }
 
   if (!v->trip_mode &&
@@ -712,7 +712,8 @@ void lcd_render(const lcd_view_t* v)
   {
     fill_rect(0, 184, LCD_W, 36, LCD_COLOR_BLACK);
     draw_text(5, 191, "TRIP", 2, LCD_COLOR_YELLOW);
-    draw_distance_text_at(86, 190, v->distance_m, 3, LCD_COLOR_YELLOW);
+    //--aaw-draw_distance_text_at(86, 190, v->distance_m, 3, LCD_COLOR_YELLOW);
+    draw_distance_text_at(86, 190, v->distance_m, 3, LCD_COLOR_WHITE);
     char point_count[12];
     snprintf(point_count, sizeof(point_count), "%u", (unsigned)v->point_count);
     draw_text(LCD_W - text_width(point_count, 2) - 6, 191, point_count, 2, LCD_COLOR_WHITE);
