@@ -547,6 +547,9 @@ void lcd_render(const lcd_view_t* v)
       case 4:
         action = "Format SDcard";
         break;
+      case 5:
+        action = "List Trip Files";
+        break;
       default:
         break;
       }
@@ -630,7 +633,8 @@ void lcd_render(const lcd_view_t* v)
         v->storage_free_bytes != s_prev.storage_free_bytes ||
         v->storage_available != s_prev.storage_available ||
         v->storage_details != s_prev.storage_details ||
-        v->menu_selection != s_prev.menu_selection || v->wifi_status != s_prev.wifi_status)
+        v->menu_selection != s_prev.menu_selection || v->menu_scroll != s_prev.menu_scroll ||
+        v->wifi_status != s_prev.wifi_status)
     {
       fill_rect(0, 0, LCD_W, 240, LCD_COLOR_BLACK);
       draw_text(7, 7, "SYSTEM MENU", 2, LCD_COLOR_CYAN);
@@ -643,18 +647,75 @@ void lcd_render(const lcd_view_t* v)
         draw_text(LCD_W - text_width("Ap-mode", 2) - 7, 7, "Ap-mode", 2, LCD_COLOR_YELLOW);
       }
       fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
-      uint16_t reset_color = v->menu_selection == 0 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t storage_color = v->menu_selection == 1 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t wifi_color = v->menu_selection == 2 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t reset_tracker_color = v->menu_selection == 3 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t format_color = v->menu_selection == 4 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      uint16_t exit_color = v->menu_selection == 5 ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
-      draw_text(18, 42, "New Trip File", 2, reset_color);
-      draw_text(18, 71, "Show Used and Free", 2, storage_color);
-      draw_text(18, 100, "WiFi Menu", 2, wifi_color);
-      draw_text(18, 129, "Reset Tracker", 2, reset_tracker_color);
-      draw_text(18, 158, "Format SDcard", 2, format_color);
-      draw_text(18, 187, "Exit", 2, exit_color);
+
+      static const char* const kMenuItems[] = {
+          "New Trip File", "Show Used and Free", "WiFi Menu", "Reset Tracker",
+          "Format SDcard", "List Trip Files",    "Exit",
+      };
+      const int kMenuItemCount = 7;
+      const int kVisibleMenuItems = 6;
+      for (int i = 0; i < kVisibleMenuItems; ++i)
+      {
+        int item_index = v->menu_scroll + i;
+        if (item_index >= kMenuItemCount)
+        {
+          break;
+        }
+        uint16_t color = item_index == v->menu_selection ? LCD_COLOR_PURPLE : LCD_COLOR_YELLOW;
+        draw_text(18, 42 + i * 29, kMenuItems[item_index], 2, color);
+      }
+    }
+    s_prev = *v;
+    s_have_prev = true;
+    return;
+  }
+
+  if (v->list_trips_menu)
+  {
+    if (full || !s_prev.list_trips_menu || v->trip_entry_count != s_prev.trip_entry_count ||
+        v->list_trips_scroll != s_prev.list_trips_scroll)
+    {
+      fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
+      draw_text(7, 7, "LIST TRIPS", 2, LCD_COLOR_CYAN);
+      fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
+
+      const int row_height = 26;
+      const int first_row_y = 38;
+      const int max_visible_rows = (LCD_H - first_row_y) / row_height;
+
+      if (v->trip_entry_count == 0)
+      {
+        draw_text_centered(110, "No trip files", 2, LCD_COLOR_YELLOW);
+      }
+      else
+      {
+        size_t visible = v->trip_entry_count - v->list_trips_scroll;
+        if (visible > (size_t)max_visible_rows)
+        {
+          visible = (size_t)max_visible_rows;
+        }
+        for (size_t i = 0; i < visible; ++i)
+        {
+          const lcd_trip_entry_t* entry = &v->trip_entries[v->list_trips_scroll + i];
+          char line[32];
+          snprintf(line, sizeof(line), "%02u-%02u-%04u %02u:%02u:%02u", entry->day, entry->month,
+                   entry->year, entry->hour, entry->minute, entry->second);
+          int y = first_row_y + (int)i * row_height;
+          draw_text(7, y, line, 2, LCD_COLOR_YELLOW);
+
+          char dist[16];
+          if (entry->distance_m >= 1000.0f)
+          {
+            snprintf(dist, sizeof(dist), "%.1f KM", entry->distance_m / 1000.0f);
+          }
+          else
+          {
+            snprintf(dist, sizeof(dist), "%.0f M", entry->distance_m);
+          }
+          int dist_w = text_width(dist, 2);
+          draw_text(LCD_W - 7 - dist_w, y, dist, 2, LCD_COLOR_WHITE);
+        }
+      }
     }
     s_prev = *v;
     s_have_prev = true;

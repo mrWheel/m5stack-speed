@@ -173,8 +173,6 @@ trip-EEYYMMDD-HHmmSS.csv
 
 The date/time must be collected from the GPS.
 
-Compensate for Amsterdam time (Summer or Winter)
-
 If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
 GPX must contain valid track points, and CSV must contain the date, time, latitude, longitude, altitude, speed, course, satellite count, and cumulative distance for each exported position. Write only selected valid GPS fixes and handle file-open, write, sync, close, and card errors explicitly.
@@ -243,7 +241,7 @@ Formatting must use the ESP-IDF SD-card FAT formatter. The current trip files mu
 The current controls are source-defined:
 
 - Short Button A activates TRIP mode.
-- Long Button A resets the active trip and creates the next `trip-EEYYMMDD-HHmm.gpx` and `.csv` export files using the current GPS date-time stamp.
+- Long Button A resets the active trip and creates the next `trip-EEYYMMDD-HHmmSS.gpx` and `.csv` export files using the current GPS date-time stamp.
 - Short Button B toggles the display backlight on or off when the system menu is closed.
 - Long Button B opens or closes the system menu.
 - Short Button C activates SPEED mode and toggles between SPEED and AVG SPEED.
@@ -268,14 +266,19 @@ While the system menu is open, the normal application functions of all buttons a
 - Short Button B executes the function under the cursor.
 - Long Button B closes the system menu.
 
+The system menu currently has 7 items but only 6 fit on screen at once. When the
+cursor moves past the visible window, the menu scrolls so the cursor stays
+visible; moving the cursor back scrolls the window back accordingly.
+
 The menu options, in cursor order, are:
 
-1. `New Trip File`: resets the active trip and creates new GPX and CSV files named with the current GPS date-time in the `trip-EEYYMMDD-HHmm` format.
+1. `New Trip File`: resets the active trip and creates new GPX and CSV files named with the current GPS date-time in the `trip-EEYYMMDD-HHmmSS` format.
 2. `Show Used and Free`: shows the actual used and free SD-card space in kB on the Action screen.
 3. `WiFi Menu`: enters `[WiFi Menu]`.
 4. `Reset Tracker`: restarts the device (`esp_restart()`).
 5. `Format SDcard`: formats the SD card, creates a new GPX/CSV trip-file pair, and returns to the system menu after formatting succeeds.
-6. `Exit`: closes the system menu.
+6. `List Trip Files`: opens `[LIST TRIPS]`, a scrollable list of all `.gpx` trip files showing date/time and total distance (right-aligned).
+7. `Exit`: closes the system menu.
 
 ### System Menu And WiFi Menu Appearance
 
@@ -283,12 +286,12 @@ The `[System Menu]` and `[WiFi Menu]` share the same header and layout style:
 
 - The heading is drawn top-left at font scale 2 in cyan (`SYSTEM MENU` / `WiFi MENU`).
 - A dark-grey 1px horizontal separator line is drawn directly below the heading, spanning the full screen width.
-- Menu item text does not use letter-key prefixes; each item is drawn as plain title-cased text (`New Trip File`, `Show Used and Free`, `WiFi Menu`, `Reset Tracker`, `Format SDcard`, `Exit`) at font scale 2.
+- Menu item text does not use letter-key prefixes; each item is drawn as plain title-cased text (`New Trip File`, `Show Used and Free`, `WiFi Menu`, `Reset Tracker`, `Format SDcard`, `List Trip Files`, `Exit`) at font scale 2.
 - The item under the cursor is drawn in purple; unselected items are drawn in yellow.
 - General on-screen UI text uses mixed/title case, not all-capitals, except for short fixed-width status labels on the main display (`GPS`, `NO GPS`, `SAT:nn`, `TRIP`, `SPEED`, `AVG SPEED`, `SD ERR`) which remain upper-case.
 - The bitmap glyph renderer in `components/lcd/lcd.c` has distinct lowercase letter shapes (with true descenders for `g`, `j`, `p`, `q`, `y`) separate from the upper-case shapes, so mixed-case text renders differently from all-caps text.
 
-After a short Button B execution, the display is cleared and shows an Action screen. Reset, WiFi-menu-entry, reset-tracker, and format actions show `Executing` and the selected operation. The `Show Used and Free` Action screen shows SD-card information (`Sd card` heading, `Used:<n> kb` / `Free:<n> kb`, or `Sd unavailable` in red) instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SDcard` action returns automatically to the system menu.
+After a short Button B execution, the display is cleared and shows an Action screen. Reset, WiFi-menu-entry, reset-tracker, and format actions show `Executing` and the selected operation. The `Show Used and Free` Action screen shows SD-card information (`Sd card` heading, `Used:<n> kb` / `Free:<n> kb`, or `Sd unavailable` in red) instead of the execution text. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SDcard` action returns automatically to the system menu, and a `List Trip Files` action shows `Executing` briefly and then opens `[LIST TRIPS]` automatically.
 
 Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
@@ -320,6 +323,23 @@ The main display layout uses a 320x240 screen. The separator below the middle se
 The backlight timeout depends on battery level and is disabled while charging. Preserve the existing timeout behavior in `app_main.c`.
 
 TOTAL distance is stored in NVS under the existing namespace and key. Preserve the current checkpoint strategy and units.
+
+### List Trip Files / `[LIST TRIPS]`
+
+Selecting `List Trip Files` in the `[System Menu]` opens `[LIST TRIPS]`:
+
+- The heading `LIST TRIPS` is drawn top-left at font scale 2 in cyan, with the
+  same dark-grey 1px separator line style as `[System Menu]`/`[WiFi Menu]`.
+- Only `.gpx` trip files are listed, sorted newest first.
+- Each row shows the trip's date/time left-aligned and its total distance
+  right-aligned, in the form `DD-MM-EEYY HH:mm:SS   121 M` (meters, no
+  decimal, below 1000 m) or `DD-MM-EEYY HH:mm:SS   30.3 KM` (kilometers, one
+  decimal, at or above 1000 m).
+- If no trip files exist, a centered `No trip files` message is shown instead
+  of a list.
+- Short Button A scrolls the list up and short Button C scrolls it down when
+  there are more trip files than fit on screen.
+- Short Button B closes `[LIST TRIPS]` and returns to `[System Menu]`.
 
 ### WiFi Menu
 

@@ -28,6 +28,17 @@ typedef enum
 
 typedef struct
 {
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  float distance_m;
+} lcd_trip_entry_t;
+
+typedef struct
+{
   float speed_kmh;
   bool average_mode;
   float distance_m;
@@ -44,6 +55,7 @@ typedef struct
   bool system_menu;
   bool storage_details;
   uint8_t menu_selection;
+  uint8_t menu_scroll;
   bool menu_action;
   uint8_t action_selection;
   uint16_t trip_number;
@@ -51,6 +63,10 @@ typedef struct
   lcd_wifi_status_t wifi_status;
   char wifi_ssid[33];
   char wifi_ip_address[16];
+  bool list_trips_menu;
+  const lcd_trip_entry_t* trip_entries;
+  size_t trip_entry_count;
+  size_t list_trips_scroll;
 } lcd_view_t;
 
 esp_err_t lcd_init(void);

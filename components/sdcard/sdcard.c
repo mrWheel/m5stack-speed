@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -52,15 +53,15 @@ static char s_closed_gpx_path[64];
 #define M_PI 3.14159265358979323846
 #endif
 
-//-- Create both date-time-based trip filenames in the form trip-EEYYMMDD-HHmm.ext.
+//-- Create both date-time-based trip filenames in the form trip-EEYYMMDD-HHmmSS.ext.
 static void build_trip_filenames(const gps_data_t* gps)
 {
   snprintf(s_trip_gpx_path, sizeof(s_trip_gpx_path),
-           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d.gpx", (int)gps->year, (int)gps->month,
-           (int)gps->day, (int)gps->hour, (int)gps->minute);
+           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.gpx", (int)gps->year, (int)gps->month,
+           (int)gps->day, (int)gps->hour, (int)gps->minute, (int)gps->second);
   snprintf(s_trip_csv_path, sizeof(s_trip_csv_path),
-           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d.csv", (int)gps->year, (int)gps->month,
-           (int)gps->day, (int)gps->hour, (int)gps->minute);
+           SD_MOUNT_POINT "/trip-%04d%02d%02d-%02d%02d%02d.csv", (int)gps->year, (int)gps->month,
+           (int)gps->day, (int)gps->hour, (int)gps->minute, (int)gps->second);
 }
 
 //-- Calculate distance in meters between two lat/lon coordinates using the Haversine formula.
@@ -187,6 +188,103 @@ static bool is_trip_filename(const char* name)
   size_t length = strlen(name);
   return strncmp(name, "trip-", 5) == 0 && length > 9 &&
          (strcmp(name + length - 4, ".gpx") == 0 || strcmp(name + length - 4, ".csv") == 0);
+}
+
+//-- Parse the date/time out of a trip-EEYYMMDD-HHmm[SS].gpx filename. The time
+//-- part is accepted as either 4 digits (legacy files without seconds) or 6
+//-- digits (the current trip-EEYYMMDD-HHmmSS format), so older trip files
+//-- still list correctly.
+static bool parse_trip_filename(const char* name, sdcard_trip_summary_t* out)
+{
+  const char* date_start = name + 5;
+  const char* dash = strchr(date_start, '-');
+  const char* dot = strrchr(name, '.');
+  if (!dash || !dot || dot <= dash + 1)
+  {
+    return false;
+  }
+
+  size_t date_len = (size_t)(dash - date_start);
+  size_t time_len = (size_t)(dot - (dash + 1));
+  if (date_len != 8 || (time_len != 4 && time_len != 6))
+  {
+    return false;
+  }
+
+  int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  if (sscanf(date_start, "%4d%2d%2d", &year, &month, &day) != 3)
+  {
+    return false;
+  }
+  if (time_len == 6)
+  {
+    if (sscanf(dash + 1, "%2d%2d%2d", &hour, &minute, &second) != 3)
+    {
+      return false;
+    }
+  }
+  else if (sscanf(dash + 1, "%2d%2d", &hour, &minute) != 2)
+  {
+    return false;
+  }
+
+  out->year = (uint16_t)year;
+  out->month = (uint8_t)month;
+  out->day = (uint8_t)day;
+  out->hour = (uint8_t)hour;
+  out->minute = (uint8_t)minute;
+  out->second = (uint8_t)second;
+  return true;
+}
+
+//-- Read the cumulative distance_m value from the last <trkpt> in a closed
+//-- GPX file by scanning the tail of the file, same technique as
+//-- recover_active_trip().
+static float read_trip_gpx_last_distance(const char* path)
+{
+  int file = open(path, O_RDONLY);
+  if (file < 0)
+  {
+    return 0.0f;
+  }
+
+  off_t file_size = lseek(file, 0, SEEK_END);
+  size_t read_size = file_size > 512 ? 512 : (size_t)file_size;
+  char tail[513] = {0};
+  if (file_size < 0 || lseek(file, -((off_t)read_size), SEEK_END) < 0 ||
+      read(file, tail, read_size) != (ssize_t)read_size)
+  {
+    close(file);
+    return 0.0f;
+  }
+  close(file);
+
+  float distance = 0.0f;
+  const char* search = tail;
+  const char* found;
+  while ((found = strstr(search, "<distance_m>")) != NULL)
+  {
+    sscanf(found + strlen("<distance_m>"), "%f", &distance);
+    search = found + strlen("<distance_m>");
+  }
+  return distance;
+}
+
+static int compare_trip_summary_desc(const void* a, const void* b)
+{
+  const sdcard_trip_summary_t* ta = (const sdcard_trip_summary_t*)a;
+  const sdcard_trip_summary_t* tb = (const sdcard_trip_summary_t*)b;
+  if (ta->year != tb->year)
+    return (int)tb->year - (int)ta->year;
+  if (ta->month != tb->month)
+    return (int)tb->month - (int)ta->month;
+  if (ta->day != tb->day)
+    return (int)tb->day - (int)ta->day;
+  if (ta->hour != tb->hour)
+    return (int)tb->hour - (int)ta->hour;
+  if (ta->minute != tb->minute)
+    return (int)tb->minute - (int)ta->minute;
+  return (int)tb->second - (int)ta->second;
 }
 
 static uint32_t count_trip_entries(const char* path, bool gpx)
@@ -733,6 +831,60 @@ uint16_t sdcard_get_trip_number(void)
 uint32_t sdcard_get_entry_count(void)
 {
   return s_entry_count;
+}
+
+size_t sdcard_list_trip_files(sdcard_trip_summary_t* out, size_t max_count)
+{
+  if (!out || max_count == 0 || !s_mounted)
+  {
+    return 0;
+  }
+
+  DIR* directory = opendir(SD_MOUNT_POINT);
+  if (!directory)
+  {
+    ESP_LOGE(TAG, "Cannot open SD card directory for trip listing");
+    return 0;
+  }
+
+  size_t count = 0;
+  struct dirent* entry;
+  while (count < max_count && (entry = readdir(directory)) != NULL)
+  {
+    size_t name_length = strlen(entry->d_name);
+    if (!is_trip_filename(entry->d_name) || strcmp(entry->d_name + name_length - 4, ".gpx") != 0)
+    {
+      continue;
+    }
+
+    sdcard_trip_summary_t summary = {0};
+    if (!parse_trip_filename(entry->d_name, &summary))
+    {
+      continue;
+    }
+
+    char path[sizeof(s_trip_gpx_path)];
+    int written = snprintf(path, sizeof(path), SD_MOUNT_POINT "/%s", entry->d_name);
+    if (written < 0 || (size_t)written >= sizeof(path))
+    {
+      continue;
+    }
+
+    if (s_trip_gpx_fd >= 0 && strcmp(path, s_trip_gpx_path) == 0)
+    {
+      summary.distance_m = s_trip_distance_m;
+    }
+    else
+    {
+      summary.distance_m = read_trip_gpx_last_distance(path);
+    }
+
+    out[count++] = summary;
+  }
+  closedir(directory);
+
+  qsort(out, count, sizeof(sdcard_trip_summary_t), compare_trip_summary_desc);
+  return count;
 }
 
 esp_err_t sdcard_finish(void)

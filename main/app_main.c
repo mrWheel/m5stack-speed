@@ -23,9 +23,18 @@
 // — Program version string (keep manually updated with each release)
 // — NEVER CHANGE THIS const char* NAME
 // —             vvvvvvvvvvvvvv
-static const char* PROG_VERSION = "v1.1.1";
+static const char* PROG_VERSION = "v1.2.0";
 // —             ^^^^^^^^^^^^^^
 static const char* TAG = "m5speed";
+
+//-- Total system-menu items and how many are visible at once; must stay in
+//-- sync with lcd.c's kMenuItems array and kVisibleMenuItems.
+#define MENU_ITEM_COUNT 7
+#define MENU_VISIBLE_ITEMS 6
+
+//-- Rows visible at once in [LIST TRIPS]; must stay in sync with lcd.c's
+//-- max_visible_rows for the list_trips_menu screen.
+#define LIST_TRIPS_VISIBLE_ROWS 7
 
 static bool g_show_average = false;
 static bool g_show_total = false;
@@ -34,13 +43,18 @@ static bool g_display_on = true;
 static bool g_display_forced_off = false;
 static bool g_system_menu = false;
 static bool g_wifi_menu = false;
+static bool g_list_trips_menu = false;
 static uint8_t g_menu_selection = 0;
+static uint8_t g_menu_scroll = 0;
 static bool g_menu_action_active = false;
 static bool g_menu_action_pending = false;
 static uint8_t g_menu_action_selection = 0;
 static int64_t g_menu_action_requested_us = 0;
 static int64_t g_last_user_activity_us = 0;
 static sdcard_status_t g_storage_status;
+static lcd_trip_entry_t g_trip_entries[SDCARD_MAX_LISTED_TRIPS];
+static size_t g_trip_entry_count = 0;
+static size_t g_list_trips_scroll = 0;
 
 static const char* menu_option_name(uint8_t selection)
 {
@@ -57,10 +71,30 @@ static const char* menu_option_name(uint8_t selection)
   case 4:
     return "Format SDcard";
   case 5:
+    return "List Trip Files";
+  case 6:
     return "Exit";
   default:
     return "Unknown";
   }
+}
+
+static void refresh_trip_list(void)
+{
+  sdcard_trip_summary_t summaries[SDCARD_MAX_LISTED_TRIPS];
+  size_t count = sdcard_list_trip_files(summaries, SDCARD_MAX_LISTED_TRIPS);
+  for (size_t i = 0; i < count; ++i)
+  {
+    g_trip_entries[i].year = summaries[i].year;
+    g_trip_entries[i].month = summaries[i].month;
+    g_trip_entries[i].day = summaries[i].day;
+    g_trip_entries[i].hour = summaries[i].hour;
+    g_trip_entries[i].minute = summaries[i].minute;
+    g_trip_entries[i].second = summaries[i].second;
+    g_trip_entries[i].distance_m = summaries[i].distance_m;
+  }
+  g_trip_entry_count = count;
+  g_list_trips_scroll = 0;
 }
 
 static void log_menu_cursor(board_button_t button)
@@ -139,6 +173,32 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
     return;
   }
 
+  if (g_list_trips_menu)
+  {
+    if (button == BOARD_BUTTON_B && !long_press)
+    {
+      g_list_trips_menu = false;
+      g_system_menu = true;
+      lcd_force_redraw();
+      ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
+    }
+    else if (button == BOARD_BUTTON_A && !long_press)
+    {
+      if (g_list_trips_scroll > 0)
+      {
+        --g_list_trips_scroll;
+      }
+    }
+    else if (button == BOARD_BUTTON_C && !long_press)
+    {
+      if (g_list_trips_scroll + LIST_TRIPS_VISIBLE_ROWS < g_trip_entry_count)
+      {
+        ++g_list_trips_scroll;
+      }
+    }
+    return;
+  }
+
   if (g_menu_action_active)
   {
     if (button == BOARD_BUTTON_B && !long_press)
@@ -157,6 +217,7 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
     g_system_menu = !g_system_menu;
     g_wifi_menu = false;
     g_menu_selection = 0;
+    g_menu_scroll = 0;
     if (g_system_menu)
     {
       webserver_stop();
@@ -189,13 +250,17 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
       if (!long_press && g_menu_selection > 0)
       {
         --g_menu_selection;
+        if (g_menu_selection < g_menu_scroll)
+        {
+          g_menu_scroll = g_menu_selection;
+        }
         log_menu_cursor(button);
       }
       break;
     case BOARD_BUTTON_B:
       if (!long_press)
       {
-        if (g_menu_selection == 5)
+        if (g_menu_selection == MENU_ITEM_COUNT - 1)
         {
           g_system_menu = false;
           g_wifi_menu = false;
@@ -221,9 +286,13 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
       }
       break;
     case BOARD_BUTTON_C:
-      if (!long_press && g_menu_selection < 5)
+      if (!long_press && g_menu_selection < MENU_ITEM_COUNT - 1)
       {
         ++g_menu_selection;
+        if (g_menu_selection >= g_menu_scroll + MENU_VISIBLE_ITEMS)
+        {
+          g_menu_scroll = g_menu_selection - MENU_VISIBLE_ITEMS + 1;
+        }
         log_menu_cursor(button);
       }
       break;
@@ -387,6 +456,16 @@ void app_main(void)
         lcd_force_redraw();
         ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
       }
+      else if (g_menu_action_selection == 5)
+      {
+        refresh_trip_list();
+        g_list_trips_menu = true;
+        g_system_menu = false;
+        g_menu_action_active = false;
+        g_menu_action_pending = false;
+        lcd_force_redraw();
+        ESP_LOGI("board", "List Trips => [Active]");
+      }
     }
 
     if (!g_wifi_menu && webserver_get_wifi_status() != WEBSERVER_WIFI_OFF)
@@ -468,6 +547,7 @@ void app_main(void)
           .storage_free_bytes = g_storage_status.free_bytes,
           .system_menu = g_system_menu,
           .menu_selection = g_menu_selection,
+          .menu_scroll = g_menu_scroll,
           .menu_action = g_menu_action_active,
           .action_selection = g_menu_action_selection,
           .trip_number = sdcard_get_trip_number(),
@@ -475,6 +555,10 @@ void app_main(void)
           .wifi_status = wifi_status,
           .wifi_ssid = "",
           .wifi_ip_address = "",
+          .list_trips_menu = g_list_trips_menu,
+          .trip_entries = g_trip_entries,
+          .trip_entry_count = g_trip_entry_count,
+          .list_trips_scroll = g_list_trips_scroll,
       };
       snprintf(view.wifi_ssid, sizeof(view.wifi_ssid), "%s", wifi_ssid);
       snprintf(view.wifi_ip_address, sizeof(view.wifi_ip_address), "%s", wifi_ip_address);
