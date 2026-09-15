@@ -23,7 +23,7 @@
 // — Program version string (keep manually updated with each release)
 // — NEVER CHANGE THIS const char* NAME
 // —             vvvvvvvvvvvvvv
-static const char* PROG_VERSION = "v1.0.0";
+static const char* PROG_VERSION = "v1.1.0";
 // —             ^^^^^^^^^^^^^^
 static const char* TAG = "m5speed";
 
@@ -398,7 +398,7 @@ void app_main(void)
     if (gps_get_latest(&gps))
     {
       speedometer_update(&speedo, &gps, now_us);
-      if (sdcard_append_fix(&gps) != ESP_OK && g_storage_status.mounted)
+      if (sdcard_append_fix(&gps, speedo.trip_distance_m) != ESP_OK && g_storage_status.mounted)
       {
         ESP_LOGE(TAG, "Unable to append GPS fix to SD card");
       }
@@ -471,6 +471,7 @@ void app_main(void)
           .menu_action = g_menu_action_active,
           .action_selection = g_menu_action_selection,
           .trip_number = sdcard_get_trip_number(),
+          .point_count = sdcard_get_entry_count(),
           .wifi_status = wifi_status,
           .wifi_ssid = "",
           .wifi_ip_address = "",

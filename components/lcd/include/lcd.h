@@ -7,16 +7,16 @@
 
 //-- Standard RGB565 values. The panel's Display Inversion is now disabled in
 //-- lcd_init() (cmd 0x20), so these constants no longer need pre-correction.
-#define LCD_COLOR_BLACK    0x0000
-#define LCD_COLOR_WHITE    0xFFFF
-#define LCD_COLOR_GREEN    0x07E0
-#define LCD_COLOR_YELLOW   0xFFE0
-#define LCD_COLOR_RED      0xF800
-#define LCD_COLOR_PURPLE   0x8010
-#define LCD_COLOR_CYAN     0x07FF
+#define LCD_COLOR_BLACK 0x0000
+#define LCD_COLOR_WHITE 0xFFFF
+#define LCD_COLOR_GREEN 0x07E0
+#define LCD_COLOR_YELLOW 0xFFE0
+#define LCD_COLOR_RED 0xF800
+#define LCD_COLOR_PURPLE 0x8010
+#define LCD_COLOR_CYAN 0x07FF
 #define LCD_COLOR_DARKGREY 0x4208
-#define LCD_COLOR_BLUE     0x001F
-#define LCD_COLOR_MAGENTA  0xF81F
+#define LCD_COLOR_BLUE 0x001F
+#define LCD_COLOR_MAGENTA 0xF81F
 
 typedef enum
 {
@@ -47,6 +47,7 @@ typedef struct
   bool menu_action;
   uint8_t action_selection;
   uint16_t trip_number;
+  uint32_t point_count;
   lcd_wifi_status_t wifi_status;
   char wifi_ssid[33];
   char wifi_ip_address[16];
@@ -55,7 +56,7 @@ typedef struct
 esp_err_t lcd_init(void);
 void lcd_set_backlight(bool on);
 void lcd_clear(uint16_t color);
-void lcd_render(const lcd_view_t *view);
+void lcd_render(const lcd_view_t* view);
 void lcd_force_redraw(void);
 
 //-- Diagnostic screen: draws labeled bars of RGB565 primary/secondary colors

@@ -29,10 +29,11 @@ typedef struct
   uint16_t year;
   uint8_t hour;
   uint8_t minute;
+  uint8_t second;
   bool date_valid;
   int64_t sample_time_us;
   uint32_t sequence;
 } gps_data_t;
 
-esp_err_t gps_init(const gps_config_t *config);
-bool gps_get_latest(gps_data_t *out);
+esp_err_t gps_init(const gps_config_t* config);
+bool gps_get_latest(gps_data_t* out);

@@ -152,12 +152,16 @@ The GPS parser accepts checksummed NMEA RMC and GGA sentences. Preserve checksum
 
 ## SD Card GPS Export
 
-All valid GPS coordinates must be written to the SD card for the active trip.
+Valid GPS fixes are processed for the active trip. The first valid fix is written,
+followed by another position whenever the integrated trip distance has increased
+by at least 5 meters. The export uses the same integrated distance as the TRIP
+display; it does not use an independent coordinate-distance threshold.
 
-Each trip must use a new Google Maps-compatible KML file when the trip is reset. File names must use this exact form:
+Each trip must use a new GPX file and CSV file when the trip is reset. Both files use this exact base name:
 
 ```text
-trip-EEYYMMDD-HHmm.kml
+trip-EEYYMMDD-HHmm.gpx
+trip-EEYYMMDD-HHmm.csv
 ```
 
 - The numeric identifier `EEYY` is the Centery+Year (2025, 2026 etc.).
@@ -170,9 +174,9 @@ The date/time must be collected from the GPS.
 
 If the SDcard has less then 20% free space remove the oldest files until there is again more then 20% free space.
 
-KML must contain valid GPS coordinate data in the format expected by Google Maps or Google My Maps. Preserve coordinate order as longitude, latitude, altitude where altitude is available. Write only valid GPS fixes and handle file-open, write, sync, close, and card errors explicitly.
+GPX must contain valid track points, and CSV must contain the date, time, latitude, longitude, altitude, speed, course, satellite count, and cumulative distance for each exported position. Write only selected valid GPS fixes and handle file-open, write, sync, close, and card errors explicitly.
 
-Trip reset must close the current export file before creating the next file. The new file must be initialized with valid KML structure before coordinates are appended, and it must be finalized correctly when the trip ends or the application shuts down where the platform allows it.
+The active GPX path is stored in NVS. On startup, the storage component resumes that exact GPX/CSV pair instead of truncating a file with the current minute's name. Existing GPX closing tags are removed before appending new positions. Trip reset must close both current export files before creating the next pair. The new files must be initialized with valid GPX/CSV structure before positions are appended, and the GPX closing tags must be written after every exported position and when the trip ends or the application shuts down where the platform allows it.
 
 If the closed trip-file has less then 20 entries, delete it before opening an new trip-file.
 
@@ -192,6 +196,7 @@ The implementation must use the project's actual SD-card hardware and ESP-IDF su
 - Manage display backlight timeout.
 - Persist TOTAL distance through NVS.
 - Refresh the LCD at the existing cadence.
+- Pass the integrated trip distance to SD-card export and display the processed-position count.
 
 Do not move component responsibilities into `app_main.c` unless necessary.
 
@@ -211,6 +216,9 @@ The display uses a custom small bitmap glyph renderer. Do not replace it with a 
 
 Current UI dimensions and layout are source-defined and must be treated as authoritative. The large speed readout uses custom seven-segment digits. Smaller labels use the existing bitmap glyph renderer and current scale values.
 
+The second information bar shows the current TRIP distance or speed view and
+the processed export-position count as an unlabeled, right-aligned number.
+
 ### `components/speedometer`
 
 Owns GNSS speed filtering, display speed limiting, trip distance, total distance, trip reset, and trip average calculations.
@@ -219,22 +227,25 @@ Distance is integrated from valid GNSS speed. Preserve the current stationary th
 
 ### SD-card storage
 
-The SD-card storage implementation owns card mounting, free-space reporting, trip file numbering, KML file lifecycle, coordinate appends, flushing, and error handling. GPS parsing and display rendering must not directly own SD-card protocol details.
+The SD-card storage implementation owns card mounting, free-space reporting, trip file naming, GPX/CSV file lifecycle, coordinate appends, flushing, and error handling. GPS parsing and display rendering must not directly own SD-card protocol details.
 
 Free-space reporting must use the mounted FatFs volume and `f_getfree()`. Do not use `statvfs()` for SD-card capacity reporting because the selected ESP-IDF version does not implement it and returns `ENOSYS`. A mounted card must remain usable even when a filesystem-statistics read fails; report the error without crashing.
 
-Formatting must use the ESP-IDF SD-card FAT formatter. The current trip file must be closed before formatting, and a new `trip-nnn.kml` file must be created after formatting succeeds.
+Formatting must use the ESP-IDF SD-card FAT formatter. The current trip files must be closed before formatting, and a new GPX/CSV pair must be created after formatting succeeds.
 
 ## User Interface Behavior
 
 The current controls are source-defined:
 
 - Short Button A activates TRIP mode.
-- Long Button A resets the active trip and creates the next `trip-YYMMDD-HHmm.kml` export file using the current date-time stamp.
+- Long Button A resets the active trip and creates the next `trip-EEYYMMDD-HHmm.gpx` and `.csv` export files using the current GPS date-time stamp.
 - Short Button B toggles the display backlight on or off when the system menu is closed.
 - Long Button B opens or closes the system menu.
 - Short Button C activates SPEED mode and toggles between SPEED and AVG SPEED.
 - Pressing a button while the display is off wakes it.
+
+The position count shown on the second information bar is the number of
+positions successfully written to the active GPX/CSV export pair.
 
 Every button press/release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
 
@@ -254,11 +265,11 @@ While the system menu is open, the normal application functions of all buttons a
 
 The menu options, in cursor order, are:
 
-1. `New Trip File`: resets the active trip and creates a new KML file named with the current date-time in the `trip-YYMMDD-HHmm.kml` format.
+1. `New Trip File`: resets the active trip and creates new GPX and CSV files named with the current GPS date-time in the `trip-EEYYMMDD-HHmm` format.
 2. `Show Used and Free`: shows the actual used and free SD-card space in kB on the Action screen.
 3. `WiFi Menu`: enters `[WiFi Menu]`.
 4. `Reset Tracker`: restarts the device (`esp_restart()`).
-5. `Format SDcard`: formats the SD card, creates a new trip file, and returns to the system menu after formatting succeeds.
+5. `Format SDcard`: formats the SD card, creates a new GPX/CSV trip-file pair, and returns to the system menu after formatting succeeds.
 6. `Exit`: closes the system menu.
 
 ### System Menu And WiFi Menu Appearance
