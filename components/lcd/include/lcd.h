@@ -67,6 +67,15 @@ typedef struct
   const lcd_trip_entry_t* trip_entries;
   size_t trip_entry_count;
   size_t list_trips_scroll;
+  size_t list_trips_selection;
+  bool trip_info_menu;
+  lcd_trip_entry_t trip_info_entry;
+  uint32_t trip_info_duration_s;
+  float trip_info_avg_speed_kmh;
+  float trip_info_altitude_diff_m;
+  uint8_t trip_info_end_hour;
+  uint8_t trip_info_end_minute;
+  bool trip_info_valid;
   const char* prog_version;
   char trip_datetime[24];
 } lcd_view_t;

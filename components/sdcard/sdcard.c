@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "driver/gpio.h"
@@ -542,6 +543,79 @@ esp_err_t sdcard_remove_small_trip_files(void)
   return result;
 }
 
+esp_err_t sdcard_remove_undersized_trip_files(size_t min_gpx_bytes)
+{
+  if (!s_mounted)
+  {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  DIR* directory = opendir(SD_MOUNT_POINT);
+  if (!directory)
+  {
+    ESP_LOGE(TAG, "Cannot open SD card directory for undersized trip cleanup");
+    return ESP_FAIL;
+  }
+
+  struct dirent* entry;
+  esp_err_t result = ESP_OK;
+  while ((entry = readdir(directory)) != NULL)
+  {
+    size_t name_length = strlen(entry->d_name);
+    if (!is_trip_filename(entry->d_name) || name_length < 4 ||
+        strcmp(entry->d_name + name_length - 4, ".gpx") != 0)
+    {
+      continue;
+    }
+
+    char gpx_path[sizeof(s_trip_gpx_path)];
+    int written = snprintf(gpx_path, sizeof(gpx_path), SD_MOUNT_POINT "/%s", entry->d_name);
+    if (written < 0 || (size_t)written >= sizeof(gpx_path))
+    {
+      result = ESP_FAIL;
+      continue;
+    }
+
+    //-- Never delete the trip that is currently being recorded.
+    if (s_trip_gpx_fd >= 0 && strcmp(gpx_path, s_trip_gpx_path) == 0)
+    {
+      continue;
+    }
+
+    //-- stat() is unreliable for size on this FatFs VFS (see the f_getfree()
+    //-- note above for statvfs()); use the same open+lseek technique already
+    //-- proven by read_trip_gpx_last_distance() instead.
+    int size_fd = open(gpx_path, O_RDONLY);
+    if (size_fd < 0)
+    {
+      continue;
+    }
+    off_t file_size = lseek(size_fd, 0, SEEK_END);
+    close(size_fd);
+    if (file_size < 0 || (size_t)file_size >= min_gpx_bytes)
+    {
+      continue;
+    }
+
+    char csv_path[sizeof(s_trip_csv_path)];
+    snprintf(csv_path, sizeof(csv_path), "%.*s.csv", written - 4, gpx_path);
+
+    if (remove(gpx_path) != 0)
+    {
+      ESP_LOGW(TAG, "Cannot delete undersized trip file %s", gpx_path);
+      result = ESP_FAIL;
+    }
+    else
+    {
+      ESP_LOGI(TAG, "Deleted undersized trip file %s (%ld bytes)", gpx_path, (long)file_size);
+    }
+    //-- The matching CSV may already be missing; a failed remove() here is not an error.
+    remove(csv_path);
+  }
+  closedir(directory);
+  return result;
+}
+
 static esp_err_t create_trip_file(const gps_data_t* gps)
 {
   if (!gps || !gps->date_valid)
@@ -902,12 +976,131 @@ size_t sdcard_list_trip_files(sdcard_trip_summary_t* out, size_t max_count)
       summary.distance_m = read_trip_gpx_last_distance(path);
     }
 
+    snprintf(summary.base_name, sizeof(summary.base_name), "%.*s", (int)(name_length - 4),
+             entry->d_name);
+
     out[count++] = summary;
   }
   closedir(directory);
 
   qsort(out, count, sizeof(sdcard_trip_summary_t), compare_trip_summary_desc);
   return count;
+}
+
+esp_err_t sdcard_get_trip_details(const char* base_name, sdcard_trip_details_t* out)
+{
+  if (!out)
+  {
+    return ESP_ERR_INVALID_ARG;
+  }
+  memset(out, 0, sizeof(*out));
+
+  if (!base_name || !s_mounted)
+  {
+    return ESP_FAIL;
+  }
+
+  char path[80];
+  int written = snprintf(path, sizeof(path), SD_MOUNT_POINT "/%s.csv", base_name);
+  if (written < 0 || (size_t)written >= sizeof(path))
+  {
+    return ESP_FAIL;
+  }
+
+  FILE* file = fopen(path, "r");
+  if (!file)
+  {
+    return ESP_FAIL;
+  }
+
+  char line[256];
+  //-- Skip the CSV header row.
+  fgets(line, sizeof(line), file);
+
+  bool have_first = false;
+  bool have_altitude = false;
+  struct tm first_tm = {0};
+  struct tm last_tm = {0};
+  float altitude_min = 0.0f;
+  float altitude_max = 0.0f;
+  float last_distance = 0.0f;
+
+  while (fgets(line, sizeof(line), file))
+  {
+    char date_str[16];
+    char time_str[16];
+    double latitude, longitude;
+    float altitude, speed, course, distance;
+    unsigned satellites;
+    if (sscanf(line, "%15[^,],%15[^,],%lf,%lf,%f,%f,%f,%u,%f", date_str, time_str, &latitude,
+               &longitude, &altitude, &speed, &course, &satellites, &distance) != 9)
+    {
+      continue;
+    }
+
+    int year, month, day, hour, minute, second;
+    //-- time_str has a trailing "Z" (e.g. "14:30:05Z"); %d for seconds stops
+    //-- at the first non-digit character so the "Z" is simply ignored.
+    if (sscanf(date_str, "%d-%d-%d", &year, &month, &day) != 3 ||
+        sscanf(time_str, "%d:%d:%d", &hour, &minute, &second) != 3)
+    {
+      continue;
+    }
+
+    struct tm row_tm = {0};
+    row_tm.tm_year = year - 1900;
+    row_tm.tm_mon = month - 1;
+    row_tm.tm_mday = day;
+    row_tm.tm_hour = hour;
+    row_tm.tm_min = minute;
+    row_tm.tm_sec = second;
+
+    if (!have_first)
+    {
+      first_tm = row_tm;
+      have_first = true;
+    }
+    last_tm = row_tm;
+    last_distance = distance;
+
+    if (!have_altitude)
+    {
+      altitude_min = altitude;
+      altitude_max = altitude;
+      have_altitude = true;
+    }
+    else
+    {
+      if (altitude < altitude_min)
+        altitude_min = altitude;
+      if (altitude > altitude_max)
+        altitude_max = altitude;
+    }
+  }
+  fclose(file);
+
+  if (!have_first)
+  {
+    return ESP_FAIL;
+  }
+
+  time_t first_time = mktime(&first_tm);
+  time_t last_time = mktime(&last_tm);
+  int64_t duration_s = (int64_t)last_time - (int64_t)first_time;
+  if (duration_s < 0)
+  {
+    duration_s = 0;
+  }
+
+  out->distance_m = last_distance;
+  out->duration_s = (uint32_t)duration_s;
+  out->avg_speed_kmh =
+      duration_s > 0 ? (last_distance / 1000.0f) / ((float)duration_s / 3600.0f) : 0.0f;
+  out->altitude_diff_m = have_altitude ? (altitude_max - altitude_min) : 0.0f;
+  out->end_hour = (uint8_t)last_tm.tm_hour;
+  out->end_minute = (uint8_t)last_tm.tm_min;
+  out->valid = true;
+  return ESP_OK;
 }
 
 esp_err_t sdcard_finish(void)

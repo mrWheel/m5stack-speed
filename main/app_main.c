@@ -23,7 +23,7 @@
 // — Program version string (keep manually updated with each release)
 // — NEVER CHANGE THIS const char* NAME
 // —             vvvvvvvvvvvvvv
-static const char* PROG_VERSION = "v1.2.1";
+static const char* PROG_VERSION = "v1.2.2";
 // —             ^^^^^^^^^^^^^^
 static const char* TAG = "m5speed";
 
@@ -36,6 +36,10 @@ static const char* TAG = "m5speed";
 //-- max_visible_rows for the list_trips_menu screen.
 #define LIST_TRIPS_VISIBLE_ROWS 7
 
+//-- Trip file pairs with a .gpx file smaller than this are deleted when
+//-- [WiFi Menu] starts.
+#define WIFI_MENU_MIN_TRIP_GPX_BYTES 5120
+
 static bool g_show_average = false;
 static bool g_show_total = false;
 static bool g_trip_mode = false;
@@ -44,6 +48,7 @@ static bool g_display_forced_off = false;
 static bool g_system_menu = false;
 static bool g_wifi_menu = false;
 static bool g_list_trips_menu = false;
+static bool g_trip_info_menu = false;
 static uint8_t g_menu_selection = 0;
 static uint8_t g_menu_scroll = 0;
 static bool g_menu_action_active = false;
@@ -53,8 +58,12 @@ static int64_t g_menu_action_requested_us = 0;
 static int64_t g_last_user_activity_us = 0;
 static sdcard_status_t g_storage_status;
 static lcd_trip_entry_t g_trip_entries[SDCARD_MAX_LISTED_TRIPS];
+static char g_trip_base_names[SDCARD_MAX_LISTED_TRIPS][32];
 static size_t g_trip_entry_count = 0;
 static size_t g_list_trips_scroll = 0;
+static size_t g_list_trips_selection = 0;
+static lcd_trip_entry_t g_trip_info_entry;
+static sdcard_trip_details_t g_trip_info_details;
 
 static const char* menu_option_name(uint8_t selection)
 {
@@ -92,9 +101,11 @@ static void refresh_trip_list(void)
     g_trip_entries[i].minute = summaries[i].minute;
     g_trip_entries[i].second = summaries[i].second;
     g_trip_entries[i].distance_m = summaries[i].distance_m;
+    snprintf(g_trip_base_names[i], sizeof(g_trip_base_names[i]), "%s", summaries[i].base_name);
   }
   g_trip_entry_count = count;
   g_list_trips_scroll = 0;
+  g_list_trips_selection = 0;
 }
 
 static void log_menu_cursor(board_button_t button)
@@ -173,27 +184,64 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
     return;
   }
 
+  if (g_trip_info_menu)
+  {
+    if (button == BOARD_BUTTON_B)
+    {
+      g_trip_info_menu = false;
+      g_list_trips_menu = true;
+      lcd_force_redraw();
+      ESP_LOGI("board", "Trip Info => [Closed]");
+    }
+    return;
+  }
+
   if (g_list_trips_menu)
   {
-    if (button == BOARD_BUTTON_B && !long_press)
+    if (button == BOARD_BUTTON_B && long_press)
     {
       g_list_trips_menu = false;
       g_system_menu = true;
       lcd_force_redraw();
       ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
     }
+    else if (button == BOARD_BUTTON_B && !long_press)
+    {
+      if (g_trip_entry_count > 0)
+      {
+        g_trip_info_entry = g_trip_entries[g_list_trips_selection];
+        if (sdcard_get_trip_details(g_trip_base_names[g_list_trips_selection],
+                                    &g_trip_info_details) != ESP_OK)
+        {
+          ESP_LOGE(TAG, "Unable to read trip details for %s",
+                   g_trip_base_names[g_list_trips_selection]);
+        }
+        g_trip_info_menu = true;
+        g_list_trips_menu = false;
+        lcd_force_redraw();
+        ESP_LOGI("board", "Trip Info => [Active]");
+      }
+    }
     else if (button == BOARD_BUTTON_A && !long_press)
     {
-      if (g_list_trips_scroll > 0)
+      if (g_list_trips_selection > 0)
       {
-        --g_list_trips_scroll;
+        --g_list_trips_selection;
+        if (g_list_trips_selection < g_list_trips_scroll)
+        {
+          g_list_trips_scroll = g_list_trips_selection;
+        }
       }
     }
     else if (button == BOARD_BUTTON_C && !long_press)
     {
-      if (g_list_trips_scroll + LIST_TRIPS_VISIBLE_ROWS < g_trip_entry_count)
+      if (g_list_trips_selection + 1 < g_trip_entry_count)
       {
-        ++g_list_trips_scroll;
+        ++g_list_trips_selection;
+        if (g_list_trips_selection >= g_list_trips_scroll + LIST_TRIPS_VISIBLE_ROWS)
+        {
+          g_list_trips_scroll = g_list_trips_selection - LIST_TRIPS_VISIBLE_ROWS + 1;
+        }
       }
     }
     return;
@@ -279,7 +327,20 @@ static void handle_button(board_button_t button, bool long_press, speedometer_t*
           {
             ESP_LOGE(TAG, "Unable to remove small trip files");
           }
+          if (sdcard_remove_undersized_trip_files(WIFI_MENU_MIN_TRIP_GPX_BYTES) != ESP_OK)
+          {
+            ESP_LOGE(TAG, "Unable to remove undersized trip files");
+          }
           lcd_force_redraw();
+          break;
+        }
+        if (g_menu_selection == 5)
+        {
+          refresh_trip_list();
+          g_list_trips_menu = true;
+          g_system_menu = false;
+          lcd_force_redraw();
+          ESP_LOGI("board", "List Trips => [Active]");
           break;
         }
         ESP_LOGI("board", "Button B (MIDDLE) => [%s]", menu_option_name(g_menu_selection));
@@ -448,16 +509,6 @@ void app_main(void)
         lcd_force_redraw();
         ESP_LOGI("board", "System Menu => [%s]", menu_option_name(g_menu_selection));
       }
-      else if (g_menu_action_selection == 5)
-      {
-        refresh_trip_list();
-        g_list_trips_menu = true;
-        g_system_menu = false;
-        g_menu_action_active = false;
-        g_menu_action_pending = false;
-        lcd_force_redraw();
-        ESP_LOGI("board", "List Trips => [Active]");
-      }
     }
 
     if (!g_wifi_menu && webserver_get_wifi_status() != WEBSERVER_WIFI_OFF)
@@ -551,6 +602,15 @@ void app_main(void)
           .trip_entries = g_trip_entries,
           .trip_entry_count = g_trip_entry_count,
           .list_trips_scroll = g_list_trips_scroll,
+          .list_trips_selection = g_list_trips_selection,
+          .trip_info_menu = g_trip_info_menu,
+          .trip_info_entry = g_trip_info_entry,
+          .trip_info_duration_s = g_trip_info_details.duration_s,
+          .trip_info_avg_speed_kmh = g_trip_info_details.avg_speed_kmh,
+          .trip_info_altitude_diff_m = g_trip_info_details.altitude_diff_m,
+          .trip_info_end_hour = g_trip_info_details.end_hour,
+          .trip_info_end_minute = g_trip_info_details.end_minute,
+          .trip_info_valid = g_trip_info_details.valid,
           .prog_version = PROG_VERSION,
       };
       snprintf(view.wifi_ssid, sizeof(view.wifi_ssid), "%s", wifi_ssid);

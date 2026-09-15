@@ -6,3 +6,8 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+#-- app_main() runs directly on the main task and holds many locals (lcd_view_t,
+#-- gps_data_t, sdcard_status_t, etc.) in one stack frame; the 3584-byte default
+#-- was already marginal and overflowed once the trip-list/trip-info state grew.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_MAIN_TASK_STACK_SIZE=8192

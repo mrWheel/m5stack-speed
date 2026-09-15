@@ -274,6 +274,20 @@ static void draw_header(const char* title, const char* version)
   fill_rect(0, 29, LCD_W, 1, LCD_COLOR_DARKGREY);
 }
 
+//-- Formats a trip distance as meters (no decimal, below 1000 m) or
+//-- kilometers (one decimal, at or above 1000 m).
+static void format_trip_distance(float distance_m, char* out, size_t out_size)
+{
+  if (distance_m >= 1000.0f)
+  {
+    snprintf(out, out_size, "%.1f KM", distance_m / 1000.0f);
+  }
+  else
+  {
+    snprintf(out, out_size, "%.0f M", distance_m);
+  }
+}
+
 static const uint8_t seg_map[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
 
 static void draw_segment_digit(int x, int y, int digit, uint16_t color, uint16_t off)
@@ -745,7 +759,8 @@ void lcd_render(const lcd_view_t* v)
   if (v->list_trips_menu)
   {
     if (full || !s_prev.list_trips_menu || v->trip_entry_count != s_prev.trip_entry_count ||
-        v->list_trips_scroll != s_prev.list_trips_scroll)
+        v->list_trips_scroll != s_prev.list_trips_scroll ||
+        v->list_trips_selection != s_prev.list_trips_selection)
     {
       fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
       draw_header("List Trips", v->prog_version);
@@ -767,25 +782,78 @@ void lcd_render(const lcd_view_t* v)
         }
         for (size_t i = 0; i < visible; ++i)
         {
-          const lcd_trip_entry_t* entry = &v->trip_entries[v->list_trips_scroll + i];
+          size_t item_index = v->list_trips_scroll + i;
+          const lcd_trip_entry_t* entry = &v->trip_entries[item_index];
+          bool selected = item_index == v->list_trips_selection;
           char line[32];
-          snprintf(line, sizeof(line), "%02u-%02u-%04u %02u:%02u:%02u", entry->day, entry->month,
-                   entry->year, entry->hour, entry->minute, entry->second);
+          snprintf(line, sizeof(line), "%02u-%02u-%04u %02u:%02u", entry->day, entry->month,
+                   entry->year, entry->hour, entry->minute);
           int y = first_row_y + (int)i * row_height;
-          draw_text(7, y, line, 2, LCD_COLOR_YELLOW);
+          draw_text(7, y, line, 2, selected ? LCD_COLOR_WHITE : LCD_COLOR_YELLOW);
 
           char dist[16];
-          if (entry->distance_m >= 1000.0f)
-          {
-            snprintf(dist, sizeof(dist), "%.1f KM", entry->distance_m / 1000.0f);
-          }
-          else
-          {
-            snprintf(dist, sizeof(dist), "%.0f M", entry->distance_m);
-          }
+          format_trip_distance(entry->distance_m, dist, sizeof(dist));
           int dist_w = text_width(dist, 2);
           draw_text(LCD_W - 7 - dist_w, y, dist, 2, LCD_COLOR_WHITE);
         }
+      }
+    }
+    s_prev = *v;
+    s_have_prev = true;
+    return;
+  }
+
+  if (v->trip_info_menu)
+  {
+    if (full || !s_prev.trip_info_menu)
+    {
+      fill_rect(0, 0, LCD_W, LCD_H, LCD_COLOR_BLACK);
+      draw_header("Trip Info", v->prog_version);
+
+      const int label_x = 18;
+      const int value_x = 150;
+      const int row_height = 30;
+      int y = 45;
+
+      char line[32];
+
+      draw_text(label_x, y, "Date:", 2, LCD_COLOR_YELLOW);
+      snprintf(line, sizeof(line), "%02u-%02u-%04u", v->trip_info_entry.day,
+               v->trip_info_entry.month, v->trip_info_entry.year);
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      draw_text(label_x, y, "Time:", 2, LCD_COLOR_YELLOW);
+      snprintf(line, sizeof(line), "%02u:%02u - %02u:%02u", v->trip_info_entry.hour,
+               v->trip_info_entry.minute, v->trip_info_end_hour, v->trip_info_end_minute);
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      draw_text(label_x, y, "Distance:", 2, LCD_COLOR_YELLOW);
+      format_trip_distance(v->trip_info_entry.distance_m, line, sizeof(line));
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      draw_text(label_x, y, "Duration:", 2, LCD_COLOR_YELLOW);
+      snprintf(line, sizeof(line), "%02u:%02u:%02u", (unsigned)(v->trip_info_duration_s / 3600),
+               (unsigned)((v->trip_info_duration_s / 60) % 60),
+               (unsigned)(v->trip_info_duration_s % 60));
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      draw_text(label_x, y, "Avg Speed:", 2, LCD_COLOR_YELLOW);
+      snprintf(line, sizeof(line), "%.1f km/h", v->trip_info_avg_speed_kmh);
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      draw_text(label_x, y, "Alt Diff:", 2, LCD_COLOR_YELLOW);
+      snprintf(line, sizeof(line), "%.0f M", v->trip_info_altitude_diff_m);
+      draw_text(value_x, y, line, 2, LCD_COLOR_WHITE);
+      y += row_height;
+
+      if (!v->trip_info_valid)
+      {
+        draw_text_centered(y + 10, "Trip data unavailable", 2, LCD_COLOR_RED);
       }
     }
     s_prev = *v;

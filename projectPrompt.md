@@ -294,6 +294,11 @@ The `[System Menu]`, `[WiFi Menu]`, `[List Trips]`, and the `Show Used and Free`
 
 Selecting `WiFi Menu` in `[System Menu]` transitions straight to `[WiFi Menu]`; it does not pass through the generic `menu_action`/`Executing` flow, so no interim action screen is shown.
 
+Before `[WiFi Menu]` starts, all trip file pairs whose `.gpx` file is smaller
+than 5120 bytes are deleted (both the `.gpx` and its matching `.csv`). The
+trip currently being recorded is never deleted by this check, even if its
+current `.gpx` file is still below that size.
+
 After a short Button B execution on the remaining actions, the display is cleared and shows an Action screen. `Reset Tracker` and `Format SDcard` show `Executing` and the selected operation. `New Trip File` shows the `NEW TRIP FILE` header, the label `New File`, and the new file's `EEYYMMDD-HHmmSS` date/time (from `sdcard_get_active_trip_datetime()`) instead of `Executing`. `Show Used and Free` shows the `SD CARD INFO` header with `Used:` (red, left-aligned) above its indented white value, and `Free:` (green, left-aligned) above its indented white value, or `Sd unavailable` in red when the card is not mounted. Each value is auto-scaled by `format_storage_bytes()` to GB (2 decimals), MB, or KB, whichever fits best, with `,` thousand separators. Action screens remain visible until another short Button B press returns to the system menu, except that a successful `Format SDcard` action returns automatically to the system menu, and a `List Trip Files` action shows `Executing` briefly and then opens `[List Trips]` automatically.
 
 Every button release is logged with the physical position, button name, `SHORT` or `LONG` press classification, and press duration. Menu cursor changes and selected actions are also logged.
@@ -335,14 +340,46 @@ Selecting `List Trip Files` in the `[System Menu]` opens `[List Trips]`:
   same dark-grey 1px separator line style as `[System Menu]`/`[WiFi Menu]`.
 - Only `.gpx` trip files are listed, sorted newest first.
 - Each row shows the trip's date/time left-aligned and its total distance
-  right-aligned, in the form `DD-MM-EEYY HH:mm:SS   121 M` (meters, no
-  decimal, below 1000 m) or `DD-MM-EEYY HH:mm:SS   30.3 KM` (kilometers, one
-  decimal, at or above 1000 m).
+  right-aligned, in the form `DD-MM-EEYY HH:mm   121 M` (meters, no
+  decimal, below 1000 m) or `DD-MM-EEYY HH:mm   30.3 KM` (kilometers, one
+  decimal, at or above 1000 m). The seconds are not shown in this list.
 - If no trip files exist, a centered `No trip files` message is shown instead
   of a list.
-- Short Button A scrolls the list up and short Button C scrolls it down when
-  there are more trip files than fit on screen.
-- Short Button B closes `[List Trips]` and returns to `[System Menu]`.
+- A cursor selects one row at a time. Short Button A moves the cursor up and
+  short Button C moves the cursor down; the list scrolls to keep the cursor
+  visible when there are more trip files than fit on screen. The selected
+  row's date/time text is shown in white; unselected rows are shown in
+  yellow.
+- Short Button B opens `[Trip Info]` for the selected trip.
+- Long Button B closes `[List Trips]` and returns to `[System Menu]`.
+
+### Trip Info / `[Trip Info]`
+
+Short Button B on a selected row in `[List Trips]` opens `[Trip Info]`, using
+the same header layout as `[System Menu]` (title top-left in cyan, firmware
+version top-right in white, dark-grey separator line beneath).
+
+The screen shows, as yellow labels with white values:
+
+- `Date`: the trip's start date (`DD-MM-EEYY`).
+- `Time`: the trip's start and end time as `HH:mm - HH:mm` (no seconds),
+  derived from the trip's filename date/time and the last recorded CSV
+  timestamp.
+- `Distance`: the trip's total distance, auto-scaled to meters or kilometers
+  using the same rule as the `[List Trips]` row.
+- `Duration`: total trip duration as `HH:MM:SS`, derived from the first and
+  last recorded CSV timestamps.
+- `Avg Speed`: total distance divided by total duration, in km/h.
+- `Alt Diff`: the highest recorded altitude minus the lowest recorded
+  altitude, in meters.
+
+These values are computed by `sdcard_get_trip_details()` in
+`components/sdcard/sdcard.c`, which reads the trip's CSV export file. If the
+CSV file cannot be read, a red `Trip data unavailable` message is shown
+instead.
+
+Long Button B closes `[Trip Info]` and returns to `[List Trips]`. Short Button B
+also closes `[Trip Info]` and returns to `[List Trips]`.
 
 ### WiFi Menu
 
